@@ -6,11 +6,14 @@ import android.location.Geocoder
 import android.location.Location
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
 import kotlinx.coroutines.CoroutineScope
@@ -26,6 +29,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvCity: TextView
     private lateinit var tvTemperature: TextView
     private lateinit var tvWeatherDescription: TextView
+    private lateinit var swipeRefreshLayout: SwipeRefreshLayout
 
     private lateinit var fusedLocationClient: FusedLocationProviderClient
 
@@ -38,6 +42,11 @@ class MainActivity : AppCompatActivity() {
     private var currentLongitude: Double = DEFAULT_LONGITUDE
     private var currentCity: String = DEFAULT_CITY
 
+    private val handler = Handler(Looper.getMainLooper())
+    private val UPDATE_INTERVAL = 15 * 60 * 1000L  // 15 минут в миллисекундах
+
+    private val updateRunnable = Runnable { refreshData(false) }  // Автообновление без индикатора
+
     // Лаунчер для запроса разрешений
     private val locationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -45,10 +54,15 @@ class MainActivity : AppCompatActivity() {
         if (permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
             permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
         ) {
-            getLastLocation()
+            getLastLocation(
+                isManual = TODO()
+            )
         } else {
             // Разрешения не даны, используем дефолт
-            useDefaultLocation("Геолокация недоступна")
+            useDefaultLocation(
+                "Геолокация недоступна",
+                isManual = TODO()
+            )
         }
     }
 
@@ -59,18 +73,48 @@ class MainActivity : AppCompatActivity() {
         tvCity = findViewById(R.id.tv_city)
         tvTemperature = findViewById(R.id.tv_temperature)
         tvWeatherDescription = findViewById(R.id.tv_weather_description)
+        swipeRefreshLayout = findViewById(R.id.swipe_refresh_layout)
 
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
 
-        // Показываем placeholder до загрузки
+        // Настройка pull-to-refresh
+        swipeRefreshLayout.setOnRefreshListener {
+            refreshData(true)  // Manual refresh с индикатором
+        }
+
+        // Показываем placeholder до первой загрузки
         tvCity.text = "Определение..."
         tvTemperature.text = "--°C"
         tvWeatherDescription.text = "Загрузка..."
 
-        checkLocationPermissions()
+        refreshData(false)  // Первая загрузка без индикатора
     }
 
-    private fun checkLocationPermissions() {
+    override fun onResume() {
+        super.onResume()
+        // Запускаем автообновление каждые 15 минут
+        handler.postDelayed(updateRunnable, UPDATE_INTERVAL)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        // Останавливаем автообновление при паузе
+        handler.removeCallbacks(updateRunnable)
+    }
+
+    private fun refreshData(isManual: Boolean) {
+        if (isManual) {
+            swipeRefreshLayout.isRefreshing = true
+        }
+        // Показываем placeholder во время обновления (если manual, индикатор уже показан)
+        tvCity.text = "Определение..."
+        tvTemperature.text = "--°C"
+        tvWeatherDescription.text = "Загрузка..."
+
+        checkLocationPermissions(isManual)
+    }
+
+    private fun checkLocationPermissions(isManual: Boolean) {
         when {
             ContextCompat.checkSelfPermission(
                 this,
@@ -80,7 +124,7 @@ class MainActivity : AppCompatActivity() {
                         this,
                         Manifest.permission.ACCESS_COARSE_LOCATION
                     ) == PackageManager.PERMISSION_GRANTED -> {
-                getLastLocation()
+                getLastLocation(isManual)
             }
             else -> {
                 locationPermissionLauncher.launch(
@@ -89,11 +133,13 @@ class MainActivity : AppCompatActivity() {
                         Manifest.permission.ACCESS_COARSE_LOCATION
                     )
                 )
+                // Если разрешения не даны, используем дефолт сразу
+                useDefaultLocation("Геолокация недоступна", isManual)
             }
         }
     }
 
-    private fun getLastLocation() {
+    private fun getLastLocation(isManual: Boolean) {
         try {
             fusedLocationClient.lastLocation.addOnSuccessListener { location: Location? ->
                 if (location != null) {
@@ -101,27 +147,27 @@ class MainActivity : AppCompatActivity() {
                     currentLongitude = location.longitude
                     getCityFromLocation(location.latitude, location.longitude) { city ->
                         currentCity = city
-                        fetchWeather()
+                        fetchWeather(isManual)
                     }
                 } else {
-                    useDefaultLocation("Не удалось получить местоположение")
+                    useDefaultLocation("Не удалось получить местоположение", isManual)
                 }
             }.addOnFailureListener { e ->
                 Log.e("WeatherApp", "Ошибка получения location: ${e.message}")
-                useDefaultLocation("Ошибка геолокации")
+                useDefaultLocation("Ошибка геолокации", isManual)
             }
         } catch (e: SecurityException) {
             Log.e("WeatherApp", "SecurityException: ${e.message}")
-            useDefaultLocation("Разрешения не предоставлены")
+            useDefaultLocation("Разрешения не предоставлены", isManual)
         }
     }
 
-    private fun useDefaultLocation(message: String) {
+    private fun useDefaultLocation(message: String, isManual: Boolean) {
         currentLatitude = DEFAULT_LATITUDE
         currentLongitude = DEFAULT_LONGITUDE
         currentCity = DEFAULT_CITY
         tvWeatherDescription.text = "$message. Используется дефолт."
-        fetchWeather()
+        fetchWeather(isManual)
     }
 
     // Асинхронная функция для получения города через Geocoder
@@ -147,7 +193,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun fetchWeather() {
+    private fun fetchWeather(isManual: Boolean) {
         val retrofit = Retrofit.Builder()
             .baseUrl(BASE_URL)
             .addConverterFactory(GsonConverterFactory.create())
@@ -167,17 +213,29 @@ class MainActivity : AppCompatActivity() {
                             tvCity.text = currentCity
                             tvTemperature.text = "${it.current.temperature.toInt()}°C"
                             tvWeatherDescription.text = description
+                            if (isManual) {
+                                swipeRefreshLayout.isRefreshing = false
+                            }
+                            // Планируем следующее автообновление
+                            handler.removeCallbacks(updateRunnable)
+                            handler.postDelayed(updateRunnable, UPDATE_INTERVAL)
                         }
                     }
                 } else {
                     withContext(Dispatchers.Main) {
                         tvWeatherDescription.text = "Ошибка: ${response.code()}"
+                        if (isManual) {
+                            swipeRefreshLayout.isRefreshing = false
+                        }
                     }
                 }
             } catch (e: Exception) {
                 Log.e("WeatherApp", "Ошибка запроса: ${e.message}")
                 withContext(Dispatchers.Main) {
                     tvWeatherDescription.text = "Ошибка сети"
+                    if (isManual) {
+                        swipeRefreshLayout.isRefreshing = false
+                    }
                 }
             }
         }

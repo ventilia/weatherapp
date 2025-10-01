@@ -52,6 +52,7 @@ dependencies {
 
     // Добавлено для геолокации (Google Play Services)
     implementation("com.google.android.gms:play-services-location:21.3.0")
+    implementation(libs.androidx.swiperefreshlayout)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
