@@ -34,13 +34,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var fusedLocationClient: FusedLocationProviderClient
 
     private val BASE_URL = "https://api.open-meteo.com/v1/"
-    private val DEFAULT_CITY = "Москва"
-    private val DEFAULT_LATITUDE = 55.7558
-    private val DEFAULT_LONGITUDE = 37.6173
 
-    private var currentLatitude: Double = DEFAULT_LATITUDE
-    private var currentLongitude: Double = DEFAULT_LONGITUDE
-    private var currentCity: String = DEFAULT_CITY
+    private var currentLatitude: Double = 0.0
+    private var currentLongitude: Double = 0.0
+    private var currentCity: String = ""
 
     private val handler = Handler(Looper.getMainLooper())
     private val UPDATE_INTERVAL = 15 * 60 * 1000L  // 15 минут в миллисекундах
@@ -54,15 +51,10 @@ class MainActivity : AppCompatActivity() {
         if (permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
             permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
         ) {
-            getLastLocation(
-                isManual = TODO()
-            )
+            getLastLocation(false)  // После запроса, если даны, получаем location
         } else {
-            // Разрешения не даны, используем дефолт
-            useDefaultLocation(
-                "Геолокация недоступна",
-                isManual = TODO()
-            )
+            // Разрешения не даны, показываем ошибку
+            showLocationError("Разрешения на геолокацию не предоставлены. Пожалуйста, разрешите доступ в настройках.")
         }
     }
 
@@ -106,7 +98,7 @@ class MainActivity : AppCompatActivity() {
         if (isManual) {
             swipeRefreshLayout.isRefreshing = true
         }
-        // Показываем placeholder во время обновления (если manual, индикатор уже показан)
+        // Показываем placeholder во время обновления
         tvCity.text = "Определение..."
         tvTemperature.text = "--°C"
         tvWeatherDescription.text = "Загрузка..."
@@ -133,8 +125,8 @@ class MainActivity : AppCompatActivity() {
                         Manifest.permission.ACCESS_COARSE_LOCATION
                     )
                 )
-                // Если разрешения не даны, используем дефолт сразу
-                useDefaultLocation("Геолокация недоступна", isManual)
+                // Пока разрешения не даны, показываем ошибку (лаунчер обработает, если дадут)
+                showLocationError("Геолокация недоступна. Пожалуйста, предоставьте разрешения.", isManual)
             }
         }
     }
@@ -150,24 +142,28 @@ class MainActivity : AppCompatActivity() {
                         fetchWeather(isManual)
                     }
                 } else {
-                    useDefaultLocation("Не удалось получить местоположение", isManual)
+                    showLocationError("Не удалось получить местоположение. Проверьте, включена ли геолокация.", isManual)
                 }
             }.addOnFailureListener { e ->
                 Log.e("WeatherApp", "Ошибка получения location: ${e.message}")
-                useDefaultLocation("Ошибка геолокации", isManual)
+                showLocationError("Ошибка геолокации: ${e.message}", isManual)
             }
         } catch (e: SecurityException) {
             Log.e("WeatherApp", "SecurityException: ${e.message}")
-            useDefaultLocation("Разрешения не предоставлены", isManual)
+            showLocationError("Разрешения не предоставлены.", isManual)
         }
     }
 
-    private fun useDefaultLocation(message: String, isManual: Boolean) {
-        currentLatitude = DEFAULT_LATITUDE
-        currentLongitude = DEFAULT_LONGITUDE
-        currentCity = DEFAULT_CITY
-        tvWeatherDescription.text = "$message. Используется дефолт."
-        fetchWeather(isManual)
+    private fun showLocationError(message: String, isManual: Boolean = false) {
+        tvCity.text = "Ошибка"
+        tvTemperature.text = "--°C"
+        tvWeatherDescription.text = message
+        if (isManual) {
+            swipeRefreshLayout.isRefreshing = false
+        }
+        // Планируем следующее автообновление, чтобы попробовать снова позже
+        handler.removeCallbacks(updateRunnable)
+        handler.postDelayed(updateRunnable, UPDATE_INTERVAL)
     }
 
     // Асинхронная функция для получения города через Geocoder
