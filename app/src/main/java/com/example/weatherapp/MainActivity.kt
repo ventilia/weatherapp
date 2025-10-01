@@ -2,6 +2,7 @@ package com.example.weatherapp
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.location.Geocoder
 import android.location.Location
 import android.os.Build
@@ -12,6 +13,7 @@ import android.util.Log
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.core.content.ContextCompat
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.google.android.gms.location.FusedLocationProviderClient
@@ -30,6 +32,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvTemperature: TextView
     private lateinit var tvWeatherDescription: TextView
     private lateinit var swipeRefreshLayout: SwipeRefreshLayout
+    private lateinit var rootLayout: ConstraintLayout
 
     private lateinit var fusedLocationClient: FusedLocationProviderClient
 
@@ -66,6 +69,7 @@ class MainActivity : AppCompatActivity() {
         tvTemperature = findViewById(R.id.tv_temperature)
         tvWeatherDescription = findViewById(R.id.tv_weather_description)
         swipeRefreshLayout = findViewById(R.id.swipe_refresh_layout)
+        rootLayout = findViewById(R.id.root_layout)
 
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
 
@@ -102,6 +106,9 @@ class MainActivity : AppCompatActivity() {
         tvCity.text = "Определение..."
         tvTemperature.text = "--°C"
         tvWeatherDescription.text = "Загрузка..."
+
+        // Обновляем тему перед запросом данных (на случай смены системной темы)
+        updateTheme()
 
         checkLocationPermissions(isManual)
     }
@@ -161,6 +168,8 @@ class MainActivity : AppCompatActivity() {
         if (isManual) {
             swipeRefreshLayout.isRefreshing = false
         }
+        // Обновляем тему после показа ошибки (на случай смены)
+        updateTheme()
         // Планируем следующее автообновление, чтобы попробовать снова позже
         handler.removeCallbacks(updateRunnable)
         handler.postDelayed(updateRunnable, UPDATE_INTERVAL)
@@ -212,6 +221,8 @@ class MainActivity : AppCompatActivity() {
                             if (isManual) {
                                 swipeRefreshLayout.isRefreshing = false
                             }
+                            // Обновляем тему после успешного fetch (на случай смены)
+                            updateTheme()
                             // Планируем следующее автообновление
                             handler.removeCallbacks(updateRunnable)
                             handler.postDelayed(updateRunnable, UPDATE_INTERVAL)
@@ -223,6 +234,8 @@ class MainActivity : AppCompatActivity() {
                         if (isManual) {
                             swipeRefreshLayout.isRefreshing = false
                         }
+                        // Обновляем тему после ошибки
+                        updateTheme()
                     }
                 }
             } catch (e: Exception) {
@@ -232,9 +245,27 @@ class MainActivity : AppCompatActivity() {
                     if (isManual) {
                         swipeRefreshLayout.isRefreshing = false
                     }
+                    // Обновляем тему после ошибки
+                    updateTheme()
                 }
             }
         }
+    }
+
+    // Функция обновления темы: проверка текущего режима и установка фона/цветов
+    private fun updateTheme() {
+        val isNightMode = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
+
+        // Установка фона
+        rootLayout.setBackgroundResource(if (isNightMode) R.drawable.night_bg else R.drawable.day_bg)
+
+        // Установка цветов текста (используем ресурсы из colors.xml для адаптации)
+        val primaryTextColor = getColor(if (isNightMode) R.color.text_color_primary else R.color.text_color_primary)  // Белый/чёрный
+        val secondaryTextColor = getColor(if (isNightMode) R.color.text_color_secondary else R.color.text_color_secondary)  // Серый вариации
+
+        tvCity.setTextColor(primaryTextColor)
+        tvTemperature.setTextColor(primaryTextColor)
+        tvWeatherDescription.setTextColor(secondaryTextColor)
     }
 
     // Функция для преобразования WMO weather_code в описание на русском
