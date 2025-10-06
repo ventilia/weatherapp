@@ -80,13 +80,12 @@ class MainActivity : AppCompatActivity() {
         // Инициализация BottomSheet (FrameLayout)
         val bottomSheet: FrameLayout = findViewById(R.id.bottom_sheet)
         bottomSheetBehavior = BottomSheetBehavior.from(bottomSheet)
-        // Устанавливаем peekHeight на половину высоты экрана для заполнения "пол дома"
-        val screenHeight = resources.displayMetrics.heightPixels
-        bottomSheetBehavior.peekHeight = screenHeight / 2
-        // Отключаем свайп и любое взаимодействие
-        bottomSheetBehavior.isDraggable = false
-        // Устанавливаем состояние в collapsed (статичное, без пропуска)
-        bottomSheetBehavior.state = BottomSheetBehavior.STATE_COLLAPSED
+        // Настройки: пропускаем collapsed, устанавливаем half-expanded на 50% экрана (для половины дома)
+        bottomSheetBehavior.skipCollapsed = true
+        bottomSheetBehavior.halfExpandedRatio = 0.5f  // 50% высоты экрана, чтобы заполнить нижнюю половину дома
+        bottomSheetBehavior.state = BottomSheetBehavior.STATE_HALF_EXPANDED  // Изначально в half-expanded
+        bottomSheetBehavior.isDraggable = false  // Отключаем свайп и взаимодействие
+        bottomSheetBehavior.isHideable = false  // Не скрываем
 
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
 

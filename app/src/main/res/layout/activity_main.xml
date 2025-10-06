@@ -8,11 +8,9 @@
     <androidx.constraintlayout.widget.ConstraintLayout
         android:id="@+id/root_layout"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        >
+        android:layout_height="match_parent">
 
         <TextView
-
             android:id="@+id/tv_city"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
@@ -54,9 +52,8 @@
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintVertical_bias="0.4" />  <!-- Сдвиг вверх от центра -->
 
-        <!-- BottomSheet контейнер: по всей ширине, с округлым видом в стиле Material Design -->
+        <!-- BottomSheet контейнер: по всей ширине, с округлым видом в стиле Material Design. Прикреплен к низу, но поведение управляет подъемом -->
         <androidx.coordinatorlayout.widget.CoordinatorLayout
-
             android:id="@+id/bottom_sheet_container"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
@@ -67,45 +64,45 @@
 
             <FrameLayout
                 android:id="@+id/bottom_sheet"
-                android:layout_width="fill_parent"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+            android:background="@drawable/bottom_sheet_background"
+            android:clipToPadding="false"
+            android:clipChildren="false"
+            app:behavior_hideable="false"
+            app:behavior_peekHeight="0dp"
+            app:layout_behavior="com.google.android.material.bottomsheet.BottomSheetBehavior">
+
+            <!-- Drag handle: тонкий бар сверху для индикации свайпа (но свайп отключен в коде) -->
+            <View
+                android:id="@+id/drag_handle"
+                android:layout_width="36dp"
+                android:layout_height="4dp"
+                android:layout_gravity="top|center_horizontal"
+                android:layout_marginTop="8dp"
+                android:background="@drawable/drag_handle_shape" />  <!-- Shape: серый rounded rectangle -->
+
+            <!-- Плейсхолдер контента (пока пустой, с текстом для демонстрации) -->
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:background="@drawable/bottom_sheet_background"
-                android:clipToPadding="false"
-                android:clipChildren="false"
-                app:behavior_hideable="false"
-                app:behavior_peekHeight="0dp"
-                app:layout_behavior="com.google.android.material.bottomsheet.BottomSheetBehavior">
+                android:orientation="vertical"
+                android:padding="16dp"
+                android:layout_marginTop="24dp">  <!-- Отступ от drag handle -->
 
-                <!-- Drag handle: тонкий бар сверху для индикации свайпа -->
-                <View
-                    android:id="@+id/drag_handle"
-                    android:layout_width="36dp"
-                    android:layout_height="4dp"
-                    android:layout_gravity="top|center_horizontal"
-                    android:layout_marginTop="8dp"
-                    android:background="@drawable/drag_handle_shape" />  <!-- Shape: серый rounded rectangle -->
-
-                <!-- Плейсхолдер контента (пока пустой, с текстом для демонстрации) -->
-                <LinearLayout
+                <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:padding="16dp"
-                    android:layout_marginTop="24dp">  <!-- Отступ от drag handle -->
+                    android:text="Placeholder content" />
 
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="Placeholder content" />
+                <!-- Здесь будет будущий контент -->
 
-                    <!-- Здесь будет будущий контент -->
+            </LinearLayout>
 
-                </LinearLayout>
+        </FrameLayout>
 
-            </FrameLayout>
+    </androidx.coordinatorlayout.widget.CoordinatorLayout>
 
-        </androidx.coordinatorlayout.widget.CoordinatorLayout>
+</androidx.constraintlayout.widget.ConstraintLayout>
 
-    </androidx.constraintlayout.widget.ConstraintLayout>
-
-</androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+    </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
