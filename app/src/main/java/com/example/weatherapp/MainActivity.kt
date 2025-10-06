@@ -10,6 +10,8 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -18,6 +20,7 @@ import androidx.core.content.ContextCompat
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
+import com.google.android.material.bottomsheet.BottomSheetBehavior
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -33,6 +36,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvWeatherDescription: TextView
     private lateinit var swipeRefreshLayout: SwipeRefreshLayout
     private lateinit var rootLayout: ConstraintLayout
+    private lateinit var ivHouse: ImageView  // ImageView для дома
+    private lateinit var bottomSheetBehavior: BottomSheetBehavior<FrameLayout>  // Behavior для BottomSheet (FrameLayout)
 
     private lateinit var fusedLocationClient: FusedLocationProviderClient
 
@@ -70,6 +75,18 @@ class MainActivity : AppCompatActivity() {
         tvWeatherDescription = findViewById(R.id.tv_weather_description)
         swipeRefreshLayout = findViewById(R.id.swipe_refresh_layout)
         rootLayout = findViewById(R.id.root_layout)
+        ivHouse = findViewById(R.id.iv_house)  // Инициализация ImageView дома
+
+        // Инициализация BottomSheet (FrameLayout)
+        val bottomSheet: FrameLayout = findViewById(R.id.bottom_sheet)
+        bottomSheetBehavior = BottomSheetBehavior.from(bottomSheet)
+        // Устанавливаем peekHeight на половину высоты экрана для заполнения "пол дома"
+        val screenHeight = resources.displayMetrics.heightPixels
+        bottomSheetBehavior.peekHeight = screenHeight / 2
+        // Отключаем свайп и любое взаимодействие
+        bottomSheetBehavior.isDraggable = false
+        // Устанавливаем состояние в collapsed (статичное, без пропуска)
+        bottomSheetBehavior.state = BottomSheetBehavior.STATE_COLLAPSED
 
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
 
@@ -252,12 +269,15 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // Функция обновления темы: проверка текущего режима и установка фона/цветов
+    // Функция обновления темы: проверка текущего режима и установка фона/цветов/изображения дома
     private fun updateTheme() {
         val isNightMode = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
 
         // Установка фона
         rootLayout.setBackgroundResource(if (isNightMode) R.drawable.night_bg else R.drawable.day_bg)
+
+        // Установка изображения дома
+        ivHouse.setImageResource(if (isNightMode) R.drawable.house_night else R.drawable.house_day)
 
         // Установка цветов текста (используем ресурсы из colors.xml для адаптации)
         val primaryTextColor = getColor(if (isNightMode) R.color.text_color_primary else R.color.text_color_primary)  // Белый/чёрный
