@@ -13,11 +13,12 @@
         android:gravity="center_vertical">
 
         <TextView
+
             android:id="@+id/tv_weekly_tab"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="Еженедельный прогноз"
+            android:text="Еженедельный"
             android:textColor="@android:color/darker_gray"
             android:textSize="16sp"
             android:gravity="start"
@@ -29,7 +30,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="Ежедневный прогноз"
+            android:text="Ежедневный"
             android:textColor="@android:color/darker_gray"
             android:textSize="16sp"
             android:gravity="end"
@@ -42,12 +43,13 @@
 
     <!-- RecyclerView для горизонтальных блоков -->
     <androidx.recyclerview.widget.RecyclerView
+        android:layout_marginTop="20dp"
         android:id="@+id/rv_forecast"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:clipToPadding="false"
-        android:paddingStart="8dp"
+
         android:paddingEnd="8dp" />
 
 </LinearLayout>

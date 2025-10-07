@@ -97,6 +97,10 @@ class MainActivity : AppCompatActivity() {
     private var dailyData: List<ForecastItem> = emptyList()
     private var currentMode: String = "daily"  // По умолчанию ежедневный (по часам)
 
+    // Цвета текста в зависимости от темы
+    private var textColorPrimary: Int = Color.BLACK
+    private var textColorSecondary: Int = Color.GRAY
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -113,21 +117,29 @@ class MainActivity : AppCompatActivity() {
         if (isNightMode) {
             rootLayout.background = getDrawable(R.drawable.night_bg)
             ivHouse.setImageResource(R.drawable.house_night)
+            textColorPrimary = Color.GRAY
+            textColorSecondary = Color.DKGRAY
         } else {
             rootLayout.background = getDrawable(R.drawable.day_bg)
             ivHouse.setImageResource(R.drawable.house_day)
+            textColorPrimary = Color.BLACK
+            textColorSecondary = Color.GRAY
         }
+
+        // Применяем цвета к основным текстовым элементам
+        tvCity.setTextColor(textColorPrimary)
+        tvTemperature.setTextColor(textColorPrimary)
+        tvWeatherDescription.setTextColor(textColorPrimary)
 
         // Инициализация BottomSheet (FrameLayout)
         val bottomSheet: FrameLayout = findViewById(R.id.bottom_sheet)
         layoutInflater.inflate(R.layout.bottom_sheet_layout, bottomSheet, true)
         bottomSheetBehavior = BottomSheetBehavior.from(bottomSheet)
-        // Настройки: устанавливаем half-expanded на 25% экрана для уменьшения размера
-        bottomSheetBehavior.skipCollapsed = false  // Включаем collapsed для стабильности, чтобы избежать пропаданий
-        bottomSheetBehavior.halfExpandedRatio = 0.35f  // 25% высоты экрана для сильного уменьшения
-        bottomSheetBehavior.state = BottomSheetBehavior.STATE_HALF_EXPANDED  // Изначально в half-expanded
-        bottomSheetBehavior.isDraggable = false  // Отключаем свайп и взаимодействие
-        bottomSheetBehavior.isHideable = false  // Не скрываем
+        bottomSheetBehavior.skipCollapsed = false
+        bottomSheetBehavior.halfExpandedRatio = 0.35f
+        bottomSheetBehavior.state = BottomSheetBehavior.STATE_HALF_EXPANDED
+        bottomSheetBehavior.isDraggable = false
+        bottomSheetBehavior.isHideable = false
 
         // Инициализация элементов Bottom Sheet
         tvWeeklyTab = bottomSheet.findViewById(R.id.tv_weekly_tab)
@@ -137,6 +149,10 @@ class MainActivity : AppCompatActivity() {
         rvForecast.layoutManager = LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
         forecastAdapter = ForecastAdapter(emptyList())
         rvForecast.adapter = forecastAdapter
+
+        // Устанавливаем начальные цвета вкладок
+        tvDailyTab.setTextColor(textColorPrimary)
+        tvWeeklyTab.setTextColor(textColorSecondary)
 
         // Переключение вкладок
         tvDailyTab.setOnClickListener {
@@ -160,12 +176,12 @@ class MainActivity : AppCompatActivity() {
         currentMode = mode
         if (mode == "daily") {
             forecastAdapter.updateData(hourlyData)
-            tvDailyTab.setBackgroundColor(Color.LTGRAY)
-            tvWeeklyTab.setBackgroundColor(Color.TRANSPARENT)
+            tvDailyTab.setTextColor(textColorPrimary)
+            tvWeeklyTab.setTextColor(textColorSecondary)
         } else {
             forecastAdapter.updateData(dailyData)
-            tvWeeklyTab.setBackgroundColor(Color.LTGRAY)
-            tvDailyTab.setBackgroundColor(Color.TRANSPARENT)
+            tvWeeklyTab.setTextColor(textColorPrimary)
+            tvDailyTab.setTextColor(textColorSecondary)
         }
     }
 
@@ -285,7 +301,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // Daily data with "время до"
+        // Daily data — убираем "(через X дн.)"
         dailyData = buildList {
             val currentDate = LocalDateTime.now().toLocalDate()
             for (i in 0 until (weather.daily?.time?.size ?: 0)) {
@@ -295,7 +311,7 @@ class MainActivity : AppCompatActivity() {
                 val label = when {
                     daysUntil == 0 -> "Сегодня"
                     daysUntil == 1 -> "Завтра"
-                    else -> "${dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault())} (через $daysUntil дн.)"
+                    else -> dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault())
                 }
                 val temp = "${weather.daily.temperature2mMin[i].toInt()}° / ${weather.daily.temperature2mMax[i].toInt()}°"
                 add(ForecastItem(label, temp, weather.daily.weatherCode[i], daysUntil == 0))
@@ -538,7 +554,6 @@ class MainActivity : AppCompatActivity() {
         }
         bitmap.setPixels(pix, 0, w, 0, 0, w, h)
 
-        // Если был scale, возвращаем к оригинальному размеру
         bitmap = Bitmap.createScaledBitmap(bitmap, sentBitmap.width, sentBitmap.height, true)
 
         return bitmap
