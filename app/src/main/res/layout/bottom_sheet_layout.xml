@@ -38,17 +38,7 @@
 
     </LinearLayout>
 
-    <!-- Плейсхолдер/подсказка о режиме (можно использовать для описания) -->
-    <TextView
-        android:id="@+id/tv_placeholder"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="Переключайтесь между режимами для просмотра прогноза"
-        android:textColor="@color/text_color_primary"
-        android:textSize="14sp"
-        android:gravity="center"
-        android:layout_marginTop="8dp"
-        android:layout_marginBottom="16dp" />
+  =
 
     <!-- RecyclerView для горизонтальных блоков -->
     <androidx.recyclerview.widget.RecyclerView

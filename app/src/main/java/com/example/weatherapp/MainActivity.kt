@@ -299,12 +299,12 @@ class MainActivity : AppCompatActivity() {
     private fun processHourlyData(hourly: Hourly): List<ForecastItem> {
         val items = mutableListOf<ForecastItem>()
         val currentTime = LocalDateTime.now(ZoneId.systemDefault())
-        var foundCurrent = false
+        var foundCurrent = false  // Флаг для только одного "Сейчас"
 
         for (i in hourly.time.indices) {
             val timeStr = hourly.time[i]
             val time = LocalDateTime.parse(timeStr, DateTimeFormatter.ISO_DATE_TIME)
-            val label = if (ChronoUnit.HOURS.between(currentTime, time) == 0L) {
+            val label = if (!foundCurrent && ChronoUnit.HOURS.between(currentTime, time) == 0L) {  // Исправление: Только первый совпадающий
                 foundCurrent = true
                 "Сейчас"
             } else {
@@ -357,17 +357,19 @@ class MainActivity : AppCompatActivity() {
 
     // Обновление фона с блюром
     private fun updateBackground() {
+        // Определение темы устройства
+        val isDarkTheme = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+        val houseResId = if (isDarkTheme) R.drawable.house_night else R.drawable.house_day  // Исправление: Смена по теме (предполагаем ресурсы)
+
         // Загружаем изображение дома
-        val houseDrawable = resources.getDrawable(R.drawable.house_day, null)  // Предполагаем, что есть drawable house.png/jpg
+        val houseDrawable = resources.getDrawable(houseResId, null)
         val houseBitmap = (houseDrawable as BitmapDrawable).bitmap
 
         // Применяем блюр
         val blurredBitmap = applyBlur(houseBitmap, 25)  // Радиус блюра 25
 
-        // Создаем LayerDrawable: блюр + затемнение
-        val overlay = ColorDrawable(Color.argb(128, 0, 0, 0))  // Полупрозрачный черный
-        val layers = arrayOf(BitmapDrawable(resources, blurredBitmap), overlay)
-        val layerDrawable = LayerDrawable(layers)
+        // Создаем LayerDrawable: только блюр (убрали затемнение, чтобы избежать эффекта за bottom sheet)
+        val layerDrawable = LayerDrawable(arrayOf(BitmapDrawable(resources, blurredBitmap)))
 
         // Устанавливаем как фон rootLayout
         rootLayout.background = layerDrawable

@@ -18,7 +18,10 @@ data class Current(
     val temperature: Double,
 
     @SerializedName("weather_code")
-    val weatherCode: Int
+    val weatherCode: Int,
+
+    @SerializedName("time")
+    val time: String
 )
 
 data class Hourly(
