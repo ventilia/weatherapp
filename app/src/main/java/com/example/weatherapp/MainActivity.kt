@@ -23,7 +23,7 @@ import android.widget.ImageView
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
-import androidx.constraintlayout.widget.ConstraintLayout
+import androidx.coordinatorlayout.widget.CoordinatorLayout
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -55,7 +55,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvTemperature: TextView
     private lateinit var tvWeatherDescription: TextView
     private lateinit var swipeRefreshLayout: SwipeRefreshLayout
-    private lateinit var rootLayout: ConstraintLayout
+    private lateinit var rootLayout: CoordinatorLayout
     private lateinit var ivHouse: ImageView  // ImageView для дома
     private lateinit var bottomSheetBehavior: BottomSheetBehavior<FrameLayout>  // Behavior для BottomSheet (FrameLayout)
 
