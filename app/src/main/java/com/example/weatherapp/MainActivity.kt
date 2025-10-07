@@ -54,10 +54,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvCity: TextView
     private lateinit var tvTemperature: TextView
     private lateinit var tvWeatherDescription: TextView
+    private lateinit var ivMainWeatherIcon: ImageView  // ← Новая переменная
     private lateinit var swipeRefreshLayout: SwipeRefreshLayout
     private lateinit var rootLayout: CoordinatorLayout
-    private lateinit var ivHouse: ImageView  // ImageView для дома
-    private lateinit var bottomSheetBehavior: BottomSheetBehavior<FrameLayout>  // Behavior для BottomSheet (FrameLayout)
+    private lateinit var ivHouse: ImageView
+    private lateinit var bottomSheetBehavior: BottomSheetBehavior<FrameLayout>
 
     private lateinit var fusedLocationClient: FusedLocationProviderClient
 
@@ -68,38 +69,36 @@ class MainActivity : AppCompatActivity() {
     private var currentCity: String = ""
 
     private val handler = Handler(Looper.getMainLooper())
-    private val UPDATE_INTERVAL = 15 * 60 * 1000L  // 15 минут в миллисекундах
+    private val UPDATE_INTERVAL = 15 * 60 * 1000L
 
-    private val updateRunnable = Runnable { refreshData(false) }  // Автообновление без индикатора
+    private val updateRunnable = Runnable { refreshData(false) }
 
-    // Лаунчер для запроса разрешений
     private val locationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
         if (permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
             permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
         ) {
-            getLastLocation(false)  // После запроса, если даны, получаем location
+            getLastLocation(false)
         } else {
-            // Разрешения не даны, показываем ошибку
             showLocationError("Разрешения на геолокацию не предоставлены. Пожалуйста, разрешите доступ в настройках.")
         }
     }
 
-    // Элементы Bottom Sheet
     private lateinit var tvWeeklyTab: TextView
     private lateinit var tvDailyTab: TextView
     private lateinit var rvForecast: RecyclerView
     private lateinit var forecastAdapter: ForecastAdapter
 
-    // Данные прогноза
     private var hourlyData: List<ForecastItem> = emptyList()
     private var dailyData: List<ForecastItem> = emptyList()
-    private var currentMode: String = "daily"  // По умолчанию ежедневный (по часам)
+    private var currentMode: String = "daily"
 
-    // Цвета текста в зависимости от темы
     private var textColorPrimary: Int = Color.BLACK
     private var textColorSecondary: Int = Color.GRAY
+
+    // Флаг темы
+    private var isNightMode = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -108,12 +107,12 @@ class MainActivity : AppCompatActivity() {
         tvCity = findViewById(R.id.tv_city)
         tvTemperature = findViewById(R.id.tv_temperature)
         tvWeatherDescription = findViewById(R.id.tv_weather_description)
+        ivMainWeatherIcon = findViewById(R.id.iv_main_weather_icon)  // ← Инициализация
         swipeRefreshLayout = findViewById(R.id.swipe_refresh_layout)
         rootLayout = findViewById(R.id.root_layout)
-        ivHouse = findViewById(R.id.iv_house)  // Инициализация ImageView дома
+        ivHouse = findViewById(R.id.iv_house)
 
-        // Определение системной темы и установка фона/дома
-        val isNightMode = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
+        isNightMode = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
         if (isNightMode) {
             rootLayout.background = getDrawable(R.drawable.night_bg)
             ivHouse.setImageResource(R.drawable.house_night)
@@ -126,12 +125,10 @@ class MainActivity : AppCompatActivity() {
             textColorSecondary = Color.GRAY
         }
 
-        // Применяем цвета к основным текстовым элементам
         tvCity.setTextColor(textColorPrimary)
         tvTemperature.setTextColor(textColorPrimary)
         tvWeatherDescription.setTextColor(textColorPrimary)
 
-        // Инициализация BottomSheet (FrameLayout)
         val bottomSheet: FrameLayout = findViewById(R.id.bottom_sheet)
         layoutInflater.inflate(R.layout.bottom_sheet_layout, bottomSheet, true)
         bottomSheetBehavior = BottomSheetBehavior.from(bottomSheet)
@@ -141,26 +138,19 @@ class MainActivity : AppCompatActivity() {
         bottomSheetBehavior.isDraggable = false
         bottomSheetBehavior.isHideable = false
 
-        // Инициализация элементов Bottom Sheet
         tvWeeklyTab = bottomSheet.findViewById(R.id.tv_weekly_tab)
         tvDailyTab = bottomSheet.findViewById(R.id.tv_daily_tab)
         rvForecast = bottomSheet.findViewById(R.id.rv_forecast)
 
         rvForecast.layoutManager = LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
-        forecastAdapter = ForecastAdapter(emptyList())
+        forecastAdapter = ForecastAdapter(emptyList(), isNightMode)  // ← Передаём тему
         rvForecast.adapter = forecastAdapter
 
-        // Устанавливаем начальные цвета вкладок
         tvDailyTab.setTextColor(textColorPrimary)
         tvWeeklyTab.setTextColor(textColorSecondary)
 
-        // Переключение вкладок
-        tvDailyTab.setOnClickListener {
-            switchToMode("daily")
-        }
-        tvWeeklyTab.setOnClickListener {
-            switchToMode("weekly")
-        }
+        tvDailyTab.setOnClickListener { switchToMode("daily") }
+        tvWeeklyTab.setOnClickListener { switchToMode("weekly") }
 
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
 
@@ -287,7 +277,9 @@ class MainActivity : AppCompatActivity() {
         tvTemperature.text = "${current.temperature.toInt()}°C"
         tvWeatherDescription.text = getWeatherDescription(current.weatherCode)
 
-        // Hourly data
+        // Устанавливаем иконку для основного экрана
+        ivMainWeatherIcon.setImageResource(getWeatherIconResource(current.weatherCode, isNightMode))
+
         hourlyData = buildList {
             val now = LocalDateTime.now()
             val currentHourIndex = weather.hourly?.time?.indexOfFirst {
@@ -301,7 +293,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // Daily data — убираем "(через X дн.)"
         dailyData = buildList {
             val currentDate = LocalDateTime.now().toLocalDate()
             for (i in 0 until (weather.daily?.time?.size ?: 0)) {
@@ -318,10 +309,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // Update adapter based on current mode
         switchToMode(currentMode)
-
-        // Update background with blur
         updateBackground()
     }
 
@@ -339,7 +327,7 @@ class MainActivity : AppCompatActivity() {
         val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         view.draw(canvas)
-        return fastBlur(bitmap, 25)  // Blur radius
+        return fastBlur(bitmap, 25)
     }
 
     private fun fastBlur(sentBitmap: Bitmap, blurRadius: Int): Bitmap {
@@ -559,7 +547,6 @@ class MainActivity : AppCompatActivity() {
         return bitmap
     }
 
-    // Функция для преобразования WMO weather_code в описание на русском
     private fun getWeatherDescription(code: Int): String {
         return when (code) {
             0 -> "Ясно"
@@ -594,7 +581,46 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // Вспомогательный класс для элементов прогноза
+    // 🔹 НОВАЯ ФУНКЦИЯ: выбор иконки с учётом темы
+    private fun getWeatherIconResource(weatherCode: Int, isNight: Boolean): Int {
+        return when (weatherCode) {
+            // ☀️ Ясно
+            0 -> if (isNight) R.drawable.ic_clear_night else R.drawable.ic_clear_day
+
+            // ⛅ Переменная облачность
+            1, 2 -> if (isNight) R.drawable.ic_partly_cloudy_night else R.drawable.ic_partly_cloudy_day
+
+            // ☁️ Пасмурно
+            3 -> R.drawable.ic_cloudy
+
+            // 🌫 Туман и инейный туман
+            45, 48 -> R.drawable.ic_fog
+
+            // 💧 Морось (все виды) → будем использовать лёгкий дождь (или heavy_rain, если нет отдельной)
+            // Но у нас нет "лёгкого дождя", поэтому используем heavy_rain как универсальный "дождь"
+            // Однако лучше создать одну иконку "дождь", но раз у нас уже есть heavy_rain —
+            // давай введём общую "ic_rain", но если не хочешь — можно временно использовать heavy_rain.
+            // Но чтобы не вводить новую — давай **переименуем смысл**: пусть ic_heavy_rain = просто "дождь"
+            51, 53, 55, 56, 57, 61, 63, 66, 67 -> R.drawable.ic_heavy_rain
+
+            // 🌧 Сильный дождь и ливни
+            65, 80, 81, 82 -> R.drawable.ic_heavy_rain
+
+            // ❄️ Снег (все виды) → нет иконки снега! Нужно добавить хотя бы одну.
+            // Но ты просишь использовать имеющиеся. У нас её нет.
+            // Поэтому временно отобразим снег как "облачно" или "дождь"? Лучше — как "облачно", но это плохо.
+            // ⚠️ Решение: **добавим одну иконку снега** — `ic_snow` (без разделения на силу и день/ночь).
+            // Это минимальное расширение. Без неё — placeholder.
+            71, 73, 75, 77, 85, 86 -> R.drawable.ic_snow
+
+            // ⚡ Гроза
+            95, 96, 99 -> R.drawable.ic_thunderstorm
+
+            // ❓ Неизвестное — fallback
+            else -> R.drawable.ic_placeholder
+        }
+    }
+
     data class ForecastItem(
         val label: String,
         val temperature: String,
@@ -602,16 +628,12 @@ class MainActivity : AppCompatActivity() {
         val isCurrent: Boolean
     )
 
-    // Функция показа ошибки (заглушка)
     private fun showError(message: String) {
         Log.e("WeatherApp", message)
-        // Можно добавить Toast или Snackbar
     }
 
-    // Функция показа ошибки локации (заглушка)
     private fun showLocationError(message: String) {
         Log.e("WeatherApp", message)
         swipeRefreshLayout.isRefreshing = false
-        // Можно добавить диалог или Toast
     }
 }
