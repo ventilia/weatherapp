@@ -1,6 +1,7 @@
 package com.example.weatherapp
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.graphics.Bitmap
@@ -24,17 +25,27 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.core.content.ContextCompat
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
 import com.google.android.material.bottomsheet.BottomSheetBehavior
+import com.google.android.material.card.MaterialCardView
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import retrofit2.Response
+import java.time.LocalDateTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.time.format.TextStyle
+import java.time.temporal.ChronoUnit
 import java.util.Locale
+import kotlin.math.absoluteValue
 import kotlin.math.max
 import kotlin.math.min
 
@@ -75,6 +86,17 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // Элементы Bottom Sheet
+    private lateinit var tvWeeklyTab: TextView
+    private lateinit var tvDailyTab: TextView
+    private lateinit var rvForecast: RecyclerView
+    private lateinit var forecastAdapter: ForecastAdapter
+
+    // Данные прогноза
+    private var hourlyData: List<ForecastItem> = emptyList()
+    private var dailyData: List<ForecastItem> = emptyList()
+    private var currentMode: String = "daily"  // По умолчанию ежедневный (по часам)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -96,139 +118,112 @@ class MainActivity : AppCompatActivity() {
         bottomSheetBehavior.isDraggable = false  // Отключаем свайп и взаимодействие
         bottomSheetBehavior.isHideable = false  // Не скрываем
 
+        // Инициализация элементов Bottom Sheet
+        tvWeeklyTab = findViewById(R.id.tv_weekly_tab)
+        tvDailyTab = findViewById(R.id.tv_daily_tab)
+        rvForecast = findViewById(R.id.rv_forecast)
+        rvForecast.layoutManager = LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
+        forecastAdapter = ForecastAdapter(emptyList())
+        rvForecast.adapter = forecastAdapter
+
+        // Переключение вкладок
+        tvDailyTab.setOnClickListener {
+            switchToMode("daily")
+        }
+        tvWeeklyTab.setOnClickListener {
+            switchToMode("weekly")
+        }
+
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
 
-        // Настройка pull-to-refresh
+        // Swipe to refresh
         swipeRefreshLayout.setOnRefreshListener {
-            refreshData(true)  // Manual refresh с индикатором
+            refreshData(true)  // Обновление с индикатором
         }
 
-        // Показываем placeholder до первой загрузки
-        tvCity.text = "Определение..."
-        tvTemperature.text = "--°C"
-        tvWeatherDescription.text = "Загрузка..."
+        // Проверяем разрешения и загружаем данные
+        checkLocationPermissions()
 
-        // Применяем эффект после измерения views
-        rootLayout.post {
-            updateTheme()  // Изначальная тема и blur
-        }
-
-        refreshData(false)  // Первая загрузка без индикатора
-    }
-
-    override fun onResume() {
-        super.onResume()
-        // Запускаем автообновление каждые 15 минут
+        // Запускаем автообновление
         handler.postDelayed(updateRunnable, UPDATE_INTERVAL)
     }
 
-    override fun onPause() {
-        super.onPause()
-        // Останавливаем автообновление при паузе
-        handler.removeCallbacks(updateRunnable)
-    }
-
-    private fun refreshData(isManual: Boolean) {
-        if (isManual) {
-            swipeRefreshLayout.isRefreshing = true
-        }
-        // Показываем placeholder во время обновления
-        tvCity.text = "Определение..."
-        tvTemperature.text = "--°C"
-        tvWeatherDescription.text = "Загрузка..."
-
-        // Обновляем тему перед запросом данных (на случай смены системной темы)
-        updateTheme()
-
-        checkLocationPermissions(isManual)
-    }
-
-    private fun checkLocationPermissions(isManual: Boolean) {
-        when {
-            ContextCompat.checkSelfPermission(
+    // Проверка разрешений на геолокацию
+    private fun checkLocationPermissions() {
+        if (ContextCompat.checkSelfPermission(
                 this,
                 Manifest.permission.ACCESS_FINE_LOCATION
             ) == PackageManager.PERMISSION_GRANTED ||
-                    ContextCompat.checkSelfPermission(
-                        this,
-                        Manifest.permission.ACCESS_COARSE_LOCATION
-                    ) == PackageManager.PERMISSION_GRANTED -> {
-                getLastLocation(isManual)
-            }
-            else -> {
-                locationPermissionLauncher.launch(
-                    arrayOf(
-                        Manifest.permission.ACCESS_FINE_LOCATION,
-                        Manifest.permission.ACCESS_COARSE_LOCATION
-                    )
+            ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.ACCESS_COARSE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
+        ) {
+            getLastLocation(true)  // Первый запуск, с индикатором
+        } else {
+            locationPermissionLauncher.launch(
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
                 )
-                // Пока разрешения не даны, показываем ошибку (лаунчер обработает, если дадут)
-                showLocationError("Геолокация недоступна. Пожалуйста, предоставьте разрешения.", isManual)
+            )
+        }
+    }
+
+    // Получение текущей локации
+    @SuppressLint("MissingPermission")
+    private fun getLastLocation(showProgress: Boolean) {
+        if (showProgress) swipeRefreshLayout.isRefreshing = true
+
+        fusedLocationClient.lastLocation.addOnSuccessListener { location: Location? ->
+            if (location != null) {
+                currentLatitude = location.latitude
+                currentLongitude = location.longitude
+                getCityName(location)
+                fetchWeatherData()
+            } else {
+                showLocationError("Не удалось получить геолокацию. Пожалуйста, проверьте настройки.")
             }
+        }.addOnFailureListener {
+            showLocationError("Ошибка получения геолокации: ${it.message}")
         }
     }
 
-    private fun getLastLocation(isManual: Boolean) {
-        try {
-            fusedLocationClient.lastLocation.addOnSuccessListener { location: Location? ->
-                if (location != null) {
-                    currentLatitude = location.latitude
-                    currentLongitude = location.longitude
-                    getCityFromLocation(location.latitude, location.longitude) { city ->
-                        currentCity = city
-                        fetchWeather(isManual)
-                    }
-                } else {
-                    showLocationError("Не удалось получить местоположение. Проверьте, включена ли геолокация.", isManual)
-                }
-            }.addOnFailureListener { e ->
-                Log.e("WeatherApp", "Ошибка получения location: ${e.message}")
-                showLocationError("Ошибка геолокации: ${e.message}", isManual)
-            }
-        } catch (e: SecurityException) {
-            Log.e("WeatherApp", "SecurityException: ${e.message}")
-            showLocationError("Разрешения не предоставлены.", isManual)
-        }
-    }
-
-    private fun showLocationError(message: String, isManual: Boolean = false) {
-        tvCity.text = "Ошибка"
-        tvTemperature.text = "--°C"
-        tvWeatherDescription.text = message
-        if (isManual) {
-            swipeRefreshLayout.isRefreshing = false
-        }
-        // Обновляем тему после показа ошибки (на случай смены)
-        updateTheme()
-        // Планируем следующее автообновление, чтобы попробовать снова позже
-        handler.removeCallbacks(updateRunnable)
-        handler.postDelayed(updateRunnable, UPDATE_INTERVAL)
-    }
-
-    // Асинхронная функция для получения города через Geocoder
-    private fun getCityFromLocation(lat: Double, lon: Double, callback: (String) -> Unit) {
+    // Получение названия города по координатам
+    private fun getCityName(location: Location) {
         CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val geocoder = Geocoder(this@MainActivity, Locale("ru", "RU"))  // Русский язык
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    geocoder.getFromLocation(lat, lon, 1) { addresses ->
-                        val city = addresses.firstOrNull()?.locality ?: "Неизвестный город"
-                        callback(city)
-                    }
+            val geocoder = Geocoder(this@MainActivity, Locale.getDefault())
+            val addresses = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                geocoder.getFromLocation(location.latitude, location.longitude, 1)
+            } else {
+                @Suppress("deprecation")
+                geocoder.getFromLocation(location.latitude, location.longitude, 1)
+            }
+            withContext(Dispatchers.Main) {
+                if (!addresses.isNullOrEmpty()) {
+                    currentCity = addresses[0].locality ?: addresses[0].adminArea ?: "Неизвестно"
+                    tvCity.text = currentCity
                 } else {
-                    @Suppress("DEPRECATION")
-                    val addresses = geocoder.getFromLocation(lat, lon, 1)
-                    val city = addresses?.firstOrNull()?.locality ?: "Неизвестный город"
-                    callback(city)
+                    currentCity = "Неизвестно"
+                    tvCity.text = currentCity
                 }
-            } catch (e: Exception) {
-                Log.e("WeatherApp", "Ошибка Geocoder: ${e.message}")
-                callback("Неизвестный город")
             }
         }
     }
 
-    private fun fetchWeather(isManual: Boolean) {
+    // Обновление данных
+    private fun refreshData(showProgress: Boolean) {
+        if (showProgress) swipeRefreshLayout.isRefreshing = true
+        if (currentLatitude != 0.0 && currentLongitude != 0.0) {
+            fetchWeatherData()
+        } else {
+            getLastLocation(showProgress)
+        }
+        handler.postDelayed(updateRunnable, UPDATE_INTERVAL)  // Перезапуск таймера
+    }
+
+    // Загрузка данных погоды
+    private fun fetchWeatherData() {
         val retrofit = Retrofit.Builder()
             .baseUrl(BASE_URL)
             .addConverterFactory(GsonConverterFactory.create())
@@ -238,128 +233,168 @@ class MainActivity : AppCompatActivity() {
 
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val response = api.getWeather(currentLatitude, currentLongitude).execute()
+                val hourlyParams = "temperature_2m,weather_code"  // Для ежедневного (по часам)
+                val dailyParams = "temperature_2m_max,temperature_2m_min,weather_code"  // Для еженедельного
+
+                val response: retrofit2.Response<WeatherResponse> = api.getWeather(
+                    latitude = currentLatitude,
+                    longitude = currentLongitude,
+                    hourly = hourlyParams,
+                    daily = dailyParams
+                ).execute()
 
                 if (response.isSuccessful) {
-                    val weatherData = response.body()
-                    weatherData?.let {
-                        val description = getWeatherDescription(it.current.weatherCode)
+                    val weatherResponse = response.body()
+                    weatherResponse?.let {
                         withContext(Dispatchers.Main) {
-                            tvCity.text = currentCity
-                            tvTemperature.text = "${it.current.temperature.toInt()}°C"
-                            tvWeatherDescription.text = description
-                            if (isManual) {
-                                swipeRefreshLayout.isRefreshing = false
-                            }
-                            // Обновляем тему после успешного fetch (на случай смены)
-                            updateTheme()
-                            // Планируем следующее автообновление
-                            handler.removeCallbacks(updateRunnable)
-                            handler.postDelayed(updateRunnable, UPDATE_INTERVAL)
+                            updateUI(it)
                         }
                     }
                 } else {
                     withContext(Dispatchers.Main) {
-                        tvWeatherDescription.text = "Ошибка: ${response.code()}"
-                        if (isManual) {
-                            swipeRefreshLayout.isRefreshing = false
-                        }
-                        // Обновляем тему после ошибки
-                        updateTheme()
+                        showLocationError("Ошибка загрузки данных: ${response.code()}")
                     }
                 }
             } catch (e: Exception) {
-                Log.e("WeatherApp", "Ошибка запроса: ${e.message}")
                 withContext(Dispatchers.Main) {
-                    tvWeatherDescription.text = "Ошибка сети"
-                    if (isManual) {
-                        swipeRefreshLayout.isRefreshing = false
-                    }
-                    // Обновляем тему после ошибки
-                    updateTheme()
+                    showLocationError("Ошибка: ${e.message}")
+                }
+            } finally {
+                withContext(Dispatchers.Main) {
+                    swipeRefreshLayout.isRefreshing = false
                 }
             }
         }
     }
 
-    // Функция обновления темы: проверка текущего режима и установка фона/цветов/изображения дома
-    private fun updateTheme() {
-        val isNightMode = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
+    // Обновление UI
+    private fun updateUI(weatherResponse: WeatherResponse) {
+        val current = weatherResponse.current
+        tvTemperature.text = "${current.temperature.toInt()}°C"
+        tvWeatherDescription.text = getWeatherDescription(current.weatherCode)
 
-        // Установка фона
-        rootLayout.setBackgroundResource(if (isNightMode) R.drawable.night_bg else R.drawable.day_bg)
+        // Обработка данных для ежедневного (по часам)
+        val hourly = weatherResponse.hourly
+        if (hourly != null) {
+            hourlyData = processHourlyData(hourly)
+            if (currentMode == "daily") {
+                forecastAdapter.updateData(hourlyData)
+            }
+        }
 
-        // Установка изображения дома
-        ivHouse.setImageResource(if (isNightMode) R.drawable.house_night else R.drawable.house_day)
+        // Обработка данных для еженедельного
+        val daily = weatherResponse.daily
+        if (daily != null) {
+            dailyData = processDailyData(daily)
+            if (currentMode == "weekly") {
+                forecastAdapter.updateData(dailyData)
+            }
+        }
 
-        // Установка цветов текста (используем ресурсы из colors.xml для адаптации)
-        val primaryTextColor = getColor(if (isNightMode) R.color.text_color_primary else R.color.text_color_primary)  // Белый/чёрный
-        val secondaryTextColor = getColor(if (isNightMode) R.color.text_color_secondary else R.color.text_color_secondary)  // Серый вариации
+        // Обновление фона (дома с блюром)
+        updateBackground()
+    }
 
-        tvCity.setTextColor(primaryTextColor)
-        tvTemperature.setTextColor(primaryTextColor)
-        tvWeatherDescription.setTextColor(secondaryTextColor)
+    // Обработка ежедневных данных (по часам)
+    private fun processHourlyData(hourly: Hourly): List<ForecastItem> {
+        val items = mutableListOf<ForecastItem>()
+        val currentTime = LocalDateTime.now(ZoneId.systemDefault())
+        var foundCurrent = false
 
-        // Применяем frosted glass эффект (с размытием)
-        rootLayout.post {
-            applyFrostedGlassEffect(isNightMode)
+        for (i in hourly.time.indices) {
+            val timeStr = hourly.time[i]
+            val time = LocalDateTime.parse(timeStr, DateTimeFormatter.ISO_DATE_TIME)
+            val label = if (ChronoUnit.HOURS.between(currentTime, time) == 0L) {
+                foundCurrent = true
+                "Сейчас"
+            } else {
+                time.hour.toString().padStart(2, '0') + ":00"
+            }
+            val temp = "${hourly.temperature2m[i].toInt()}°"
+            items.add(ForecastItem(label, temp, hourly.weatherCode[i], label == "Сейчас"))
+        }
+        return items
+    }
+
+    // Обработка еженедельных данных
+    private fun processDailyData(daily: Daily): List<ForecastItem> {
+        val items = mutableListOf<ForecastItem>()
+        val currentDate = LocalDateTime.now(ZoneId.systemDefault()).toLocalDate()
+
+        for (i in daily.time.indices) {
+            val dateStr = daily.time[i]
+            val date = LocalDateTime.parse(dateStr + "T00:00", DateTimeFormatter.ISO_DATE_TIME).toLocalDate()
+            val label = if (date == currentDate) {
+                "Сегодня"
+            } else {
+                date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale("ru"))
+            }
+            val temp = "${daily.temperature2mMax[i].toInt()}° / ${daily.temperature2mMin[i].toInt()}°"
+            items.add(ForecastItem(label, temp, daily.weatherCode[i], label == "Сегодня"))
+        }
+        return items
+    }
+
+    // Переключение режимов (ежедневный/еженедельный)
+    private fun switchToMode(mode: String) {
+        currentMode = mode
+        if (mode == "daily") {
+            forecastAdapter.updateData(hourlyData)
+            tvDailyTab.setTextColor(Color.BLACK)
+            tvWeeklyTab.setTextColor(Color.GRAY)
+        } else {
+            forecastAdapter.updateData(dailyData)
+            tvWeeklyTab.setTextColor(Color.BLACK)
+            tvDailyTab.setTextColor(Color.GRAY)
         }
     }
 
-    // Функция применения эффекта матового стекла с размытием
-    private fun applyFrostedGlassEffect(isNightMode: Boolean) {
-        val bottomSheet: FrameLayout = findViewById(R.id.bottom_sheet)
-
-        // Скрываем bottom sheet временно, чтобы захватить фон без него
-        bottomSheet.visibility = View.INVISIBLE
-
-        // Захватываем bitmap корневого layout
-        val bitmap = Bitmap.createBitmap(rootLayout.width, rootLayout.height, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bitmap)
-        rootLayout.draw(canvas)
-
-        // Размываем bitmap (с scale для оптимизации производительности)
-        val blurred = fastBlur(bitmap, 0.5f, 25)
-
-        // Обрезаем под размер bottom sheet (примерно нижняя половина экрана)
-        val sheetHeight = (rootLayout.height * bottomSheetBehavior.halfExpandedRatio).toInt()
-        val cropY = rootLayout.height - sheetHeight
-        val croppedBlurred = Bitmap.createBitmap(blurred, 0, cropY, rootLayout.width, sheetHeight)
-
-        // Создаём drawable из размытого изображения
-        val blurredDrawable = BitmapDrawable(resources, croppedBlurred)
-
-        // Полупрозрачный оверлей (адаптированный под тему: светлый для дня, тёмный для ночи)
-        val overlayColor = if (isNightMode) Color.parseColor("#80000000") else Color.parseColor("#80FFFFFF")  // 50% прозрачность
-        val overlay = ColorDrawable(overlayColor)
-
-        // LayerDrawable: blur + overlay
-        val layer = LayerDrawable(arrayOf(blurredDrawable, overlay))
-
-        // Устанавливаем как фон bottom sheet
-        bottomSheet.background = layer
-
-        // Возвращаем видимость
-        bottomSheet.visibility = View.VISIBLE
+    // Показ ошибки
+    private fun showLocationError(message: String) {
+        Log.e("MainActivity", message)
+        // Можно добавить Toast или Snackbar
     }
 
-    // Функция быстрого размытия (Stack Blur алгоритм для совместимости)
-    private fun fastBlur(sentBitmap: Bitmap, scale: Float, radius: Int): Bitmap {
+    // Обновление фона с блюром
+    private fun updateBackground() {
+        // Загружаем изображение дома
+        val houseDrawable = resources.getDrawable(R.drawable.house_day, null)  // Предполагаем, что есть drawable house.png/jpg
+        val houseBitmap = (houseDrawable as BitmapDrawable).bitmap
+
+        // Применяем блюр
+        val blurredBitmap = applyBlur(houseBitmap, 25)  // Радиус блюра 25
+
+        // Создаем LayerDrawable: блюр + затемнение
+        val overlay = ColorDrawable(Color.argb(128, 0, 0, 0))  // Полупрозрачный черный
+        val layers = arrayOf(BitmapDrawable(resources, blurredBitmap), overlay)
+        val layerDrawable = LayerDrawable(layers)
+
+        // Устанавливаем как фон rootLayout
+        rootLayout.background = layerDrawable
+
+        // Устанавливаем оригинальное изображение дома в ImageView (без блюра)
+        ivHouse.setImageDrawable(houseDrawable)
+    }
+
+    // Функция для блюра битмапа (Stack Blur)
+    private fun applyBlur(sentBitmap: Bitmap, blurRadius: Int): Bitmap {
+        if (blurRadius < 1) {
+            return sentBitmap
+        }
+
+        // Исправление: Обработка null для config
         var bitmap = sentBitmap.copy(sentBitmap.config ?: Bitmap.Config.ARGB_8888, true)
-
-        if (scale < 1) {
-            bitmap = Bitmap.createScaledBitmap(bitmap, (bitmap.width * scale).toInt(), (bitmap.height * scale).toInt(), true)
-        }
 
         val w = bitmap.width
         val h = bitmap.height
+
         val pix = IntArray(w * h)
         bitmap.getPixels(pix, 0, w, 0, 0, w, h)
 
         val wm = w - 1
         val hm = h - 1
         val wh = w * h
-        val div = radius + radius + 1
+        val div = blurRadius + blurRadius + 1
 
         val r = IntArray(wh)
         val g = IntArray(wh)
@@ -393,7 +428,7 @@ class MainActivity : AppCompatActivity() {
         var stackstart: Int
         var sir: IntArray
         var rbs: Int
-        val r1 = radius + 1
+        val r1 = blurRadius + 1
         var routsum: Int
         var goutsum: Int
         var boutsum: Int
@@ -412,14 +447,14 @@ class MainActivity : AppCompatActivity() {
             binsum = routsum
             ginsum = binsum
             rinsum = ginsum
-            i = -radius
-            while (i <= radius) {
+            i = -blurRadius
+            while (i <= blurRadius) {
                 p = pix[yi + min(wm, max(i, 0))]
-                sir = stack[i + radius]
+                sir = stack[i + blurRadius]
                 sir[0] = (p and 0xff0000) shr 16
                 sir[1] = (p and 0x00ff00) shr 8
                 sir[2] = (p and 0x0000ff)
-                rbs = r1 - kotlin.math.abs(i)
+                rbs = r1 - i.absoluteValue
                 rsum += sir[0] * rbs
                 gsum += sir[1] * rbs
                 bsum += sir[2] * rbs
@@ -434,7 +469,7 @@ class MainActivity : AppCompatActivity() {
                 }
                 i++
             }
-            stackpointer = radius
+            stackpointer = blurRadius
 
             x = 0
             while (x < w) {
@@ -444,13 +479,13 @@ class MainActivity : AppCompatActivity() {
                 rsum -= routsum
                 gsum -= goutsum
                 bsum -= boutsum
-                stackstart = stackpointer - radius + div
+                stackstart = stackpointer - blurRadius + div
                 sir = stack[stackstart % div]
                 routsum -= sir[0]
                 goutsum -= sir[1]
                 boutsum -= sir[2]
                 if (y == 0) {
-                    vmin[x] = min(x + radius + 1, wm)
+                    vmin[x] = min(x + blurRadius + 1, wm)
                 }
                 p = pix[yw + vmin[x]]
                 sir[0] = (p and 0xff0000) shr 16
@@ -487,11 +522,11 @@ class MainActivity : AppCompatActivity() {
             binsum = routsum
             ginsum = binsum
             rinsum = ginsum
-            yp = -radius * w
-            i = -radius
-            while (i <= radius) {
+            yp = -blurRadius * w
+            i = -blurRadius
+            while (i <= blurRadius) {
                 yi = max(0, yp) + x
-                sir = stack[i + radius]
+                sir = stack[i + blurRadius]
                 sir[0] = r[yi]
                 sir[1] = g[yi]
                 sir[2] = b[yi]
@@ -514,7 +549,7 @@ class MainActivity : AppCompatActivity() {
                 i++
             }
             yi = x
-            stackpointer = radius
+            stackpointer = blurRadius
 
             y = 0
             while (y < h) {
@@ -522,13 +557,13 @@ class MainActivity : AppCompatActivity() {
                 rsum -= routsum
                 gsum -= goutsum
                 bsum -= boutsum
-                stackstart = stackpointer - radius + div
+                stackstart = stackpointer - blurRadius + div
                 sir = stack[stackstart % div]
                 routsum -= sir[0]
                 goutsum -= sir[1]
                 boutsum -= sir[2]
                 if (x == 0) {
-                    vmin[y] = min(y + radius + 1, hm) * w
+                    vmin[y] = min(y + blurRadius + 1, hm) * w
                 }
                 p = x + vmin[y]
                 sir[0] = r[p]
@@ -556,9 +591,7 @@ class MainActivity : AppCompatActivity() {
         bitmap.setPixels(pix, 0, w, 0, 0, w, h)
 
         // Если был scale, возвращаем к оригинальному размеру
-        if (scale < 1) {
-            bitmap = Bitmap.createScaledBitmap(bitmap, sentBitmap.width, sentBitmap.height, true)
-        }
+        bitmap = Bitmap.createScaledBitmap(bitmap, sentBitmap.width, sentBitmap.height, true)
 
         return bitmap
     }
@@ -597,4 +630,12 @@ class MainActivity : AppCompatActivity() {
             else -> "Неизвестно"
         }
     }
+
+    // Вспомогательный класс для элементов прогноза
+    data class ForecastItem(
+        val label: String,
+        val temperature: String,
+        val weatherCode: Int,
+        val isCurrent: Boolean
+    )
 }
