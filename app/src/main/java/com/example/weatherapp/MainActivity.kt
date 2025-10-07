@@ -36,6 +36,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import retrofit2.Call
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.Response
@@ -179,18 +180,19 @@ class MainActivity : AppCompatActivity() {
             if (location != null) {
                 currentLatitude = location.latitude
                 currentLongitude = location.longitude
-                getCityName(location)
-                fetchWeatherData()
+                getCityFromLocation(location)
+                fetchWeatherData("current")  // Загружаем текущую погоду
+                fetchForecastData()  // Загружаем прогноз
             } else {
-                showLocationError("Не удалось получить геолокацию. Пожалуйста, проверьте настройки.")
+                showLocationError("Не удалось получить локацию. Проверьте настройки GPS.")
             }
         }.addOnFailureListener {
-            showLocationError("Ошибка получения геолокации: ${it.message}")
+            showLocationError("Ошибка получения локации: ${it.message}")
         }
     }
 
-    // Получение названия города по координатам
-    private fun getCityName(location: Location) {
+    // Получение города по координатам
+    private fun getCityFromLocation(location: Location) {
         CoroutineScope(Dispatchers.IO).launch {
             val geocoder = Geocoder(this@MainActivity, Locale.getDefault())
             val addresses = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -213,17 +215,16 @@ class MainActivity : AppCompatActivity() {
 
     // Обновление данных
     private fun refreshData(showProgress: Boolean) {
-        if (showProgress) swipeRefreshLayout.isRefreshing = true
         if (currentLatitude != 0.0 && currentLongitude != 0.0) {
-            fetchWeatherData()
-        } else {
-            getLastLocation(showProgress)
+            if (showProgress) swipeRefreshLayout.isRefreshing = true
+            fetchWeatherData("current")
+            fetchForecastData()
+            handler.postDelayed(updateRunnable, UPDATE_INTERVAL)  // Перезапуск таймера
         }
-        handler.postDelayed(updateRunnable, UPDATE_INTERVAL)  // Перезапуск таймера
     }
 
-    // Загрузка данных погоды
-    private fun fetchWeatherData() {
+    // Получение данных погоды
+    private fun fetchWeatherData(forecastType: String) {
         val retrofit = Retrofit.Builder()
             .baseUrl(BASE_URL)
             .addConverterFactory(GsonConverterFactory.create())
@@ -231,161 +232,172 @@ class MainActivity : AppCompatActivity() {
 
         val api = retrofit.create(WeatherApi::class.java)
 
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val hourlyParams = "temperature_2m,weather_code"  // Для ежедневного (по часам)
-                val dailyParams = "temperature_2m_max,temperature_2m_min,weather_code"  // Для еженедельного
+        val hourlyParams = if (forecastType == "daily") "temperature_2m,weather_code" else null
+        val dailyParams = if (forecastType == "weekly") "temperature_2m_max,temperature_2m_min,weather_code" else null
 
-                val response: retrofit2.Response<WeatherResponse> = api.getWeather(
-                    latitude = currentLatitude,
-                    longitude = currentLongitude,
-                    hourly = hourlyParams,
-                    daily = dailyParams
-                ).execute()
+        val call = api.getWeather(
+            latitude = currentLatitude,
+            longitude = currentLongitude,
+            hourly = hourlyParams,
+            daily = dailyParams
+        )
 
+        call.enqueue(object : retrofit2.Callback<WeatherResponse> {
+            override fun onResponse(call: Call<WeatherResponse>, response: Response<WeatherResponse>) {
+                swipeRefreshLayout.isRefreshing = false
                 if (response.isSuccessful) {
                     val weatherResponse = response.body()
                     weatherResponse?.let {
-                        withContext(Dispatchers.Main) {
-                            updateUI(it)
-                        }
+                        updateUI(it)
                     }
                 } else {
-                    withContext(Dispatchers.Main) {
-                        showLocationError("Ошибка загрузки данных: ${response.code()}")
-                    }
-                }
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    showLocationError("Ошибка: ${e.message}")
-                }
-            } finally {
-                withContext(Dispatchers.Main) {
-                    swipeRefreshLayout.isRefreshing = false
+                    showError("Ошибка загрузки данных: ${response.code()}")
                 }
             }
-        }
+
+            override fun onFailure(call: Call<WeatherResponse>, t: Throwable) {
+                swipeRefreshLayout.isRefreshing = false
+                showError("Ошибка сети: ${t.message}")
+            }
+        })
     }
 
-    // Обновление UI
+    // Загрузка прогноза (по умолчанию hourly)
+    private fun fetchForecastData() {
+        fetchWeatherData(currentMode)
+    }
+
+    // Обновление UI текущей погоды и прогноза
     private fun updateUI(weatherResponse: WeatherResponse) {
         val current = weatherResponse.current
-        tvTemperature.text = "${current.temperature.toInt()}°C"
+        tvTemperature.text = "${current.temperature.toInt()}°"
         tvWeatherDescription.text = getWeatherDescription(current.weatherCode)
 
-        // Обработка данных для ежедневного (по часам)
-        val hourly = weatherResponse.hourly
-        if (hourly != null) {
-            hourlyData = processHourlyData(hourly)
-            if (currentMode == "daily") {
+        // Определение дня/ночи на основе часа в current.time
+        val currentTime = LocalDateTime.parse(current.time, DateTimeFormatter.ISO_DATE_TIME)
+        val isDay = currentTime.hour in 6..18
+        updateBackground(isDay)
+
+        // Обработка прогноза
+        if (currentMode == "daily") {
+            weatherResponse.hourly?.let { hourly ->
+                hourlyData = processHourlyData(hourly, current.time)
                 forecastAdapter.updateData(hourlyData)
             }
-        }
-
-        // Обработка данных для еженедельного
-        val daily = weatherResponse.daily
-        if (daily != null) {
-            dailyData = processDailyData(daily)
-            if (currentMode == "weekly") {
+        } else {
+            weatherResponse.daily?.let { daily ->
+                dailyData = processDailyData(daily)
                 forecastAdapter.updateData(dailyData)
             }
         }
 
-        // Обновление фона (дома с блюром)
-        updateBackground()
+        // Применяем блюр к Bottom Sheet после обновления UI
+        val bottomSheet: FrameLayout = findViewById(R.id.bottom_sheet)
+        applyBlurAndTransparency(bottomSheet)
     }
 
-    // Обработка ежедневных данных (по часам)
-    private fun processHourlyData(hourly: Hourly): List<ForecastItem> {
-        val items = mutableListOf<ForecastItem>()
-        val currentTime = LocalDateTime.now(ZoneId.systemDefault())
-        var foundCurrent = false  // Флаг для только одного "Сейчас"
-
-        for (i in hourly.time.indices) {
-            val timeStr = hourly.time[i]
-            val time = LocalDateTime.parse(timeStr, DateTimeFormatter.ISO_DATE_TIME)
-            val label = if (!foundCurrent && ChronoUnit.HOURS.between(currentTime, time) == 0L) {  // Исправление: Только первый совпадающий
-                foundCurrent = true
-                "Сейчас"
-            } else {
-                time.hour.toString().padStart(2, '0') + ":00"
-            }
-            val temp = "${hourly.temperature2m[i].toInt()}°"
-            items.add(ForecastItem(label, temp, hourly.weatherCode[i], label == "Сейчас"))
-        }
-        return items
-    }
-
-    // Обработка еженедельных данных
-    private fun processDailyData(daily: Daily): List<ForecastItem> {
-        val items = mutableListOf<ForecastItem>()
-        val currentDate = LocalDateTime.now(ZoneId.systemDefault()).toLocalDate()
-
-        for (i in daily.time.indices) {
-            val dateStr = daily.time[i]
-            val date = LocalDateTime.parse(dateStr + "T00:00", DateTimeFormatter.ISO_DATE_TIME).toLocalDate()
-            val label = if (date == currentDate) {
-                "Сегодня"
-            } else {
-                date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale("ru"))
-            }
-            val temp = "${daily.temperature2mMax[i].toInt()}° / ${daily.temperature2mMin[i].toInt()}°"
-            items.add(ForecastItem(label, temp, daily.weatherCode[i], label == "Сегодня"))
-        }
-        return items
-    }
-
-    // Переключение режимов (ежедневный/еженедельный)
+    // Переключение режимов прогноза
     private fun switchToMode(mode: String) {
         currentMode = mode
         if (mode == "daily") {
+            tvDailyTab.setBackgroundColor(Color.LTGRAY)
+            tvWeeklyTab.setBackgroundColor(Color.TRANSPARENT)
             forecastAdapter.updateData(hourlyData)
-            tvDailyTab.setTextColor(Color.BLACK)
-            tvWeeklyTab.setTextColor(Color.GRAY)
         } else {
+            tvWeeklyTab.setBackgroundColor(Color.LTGRAY)
+            tvDailyTab.setBackgroundColor(Color.TRANSPARENT)
             forecastAdapter.updateData(dailyData)
-            tvWeeklyTab.setTextColor(Color.BLACK)
-            tvDailyTab.setTextColor(Color.GRAY)
+        }
+        fetchWeatherData(mode)
+    }
+
+    // Обработка почасового прогноза
+    private fun processHourlyData(hourly: Hourly, currentTimeStr: String): List<ForecastItem> {
+        val items = mutableListOf<ForecastItem>()
+        val currentTime = LocalDateTime.parse(currentTimeStr, DateTimeFormatter.ISO_DATE_TIME)
+        val formatter = DateTimeFormatter.ofPattern("HH:mm")
+
+        for (i in hourly.time.indices) {
+            val time = LocalDateTime.parse(hourly.time[i], DateTimeFormatter.ISO_DATE_TIME)
+            if (time.isAfter(currentTime) || time == currentTime) {
+                val label = if (i == 0) "Сейчас" else time.format(formatter)
+                val isCurrent = i == 0
+                items.add(
+                    ForecastItem(
+                        label,
+                        "${hourly.temperature2m[i].toInt()}°",
+                        hourly.weatherCode[i],
+                        isCurrent
+                    )
+                )
+                if (items.size == 24) break  // Ограничиваем 24 часами
+            }
+        }
+        return items
+    }
+
+    // Обработка ежедневного прогноза
+    private fun processDailyData(daily: Daily): List<ForecastItem> {
+        val items = mutableListOf<ForecastItem>()
+        val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
+        for (i in daily.time.indices) {
+            val date = LocalDateTime.parse(daily.time[i], formatter)
+            val label = date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault())
+            items.add(
+                ForecastItem(
+                    label,
+                    "${daily.temperature2mMax[i].toInt()}° / ${daily.temperature2mMin[i].toInt()}°",
+                    daily.weatherCode[i],
+                    false
+                )
+            )
+        }
+        return items
+    }
+
+    // Функция для обновления фона в зависимости от дня/ночи
+    private fun updateBackground(isDay: Boolean) {
+        rootLayout.background = if (isDay) {
+            resources.getDrawable(R.drawable.day_bg, null)
+        } else {
+            resources.getDrawable(R.drawable.night_bg, null)
         }
     }
 
-    // Показ ошибки
-    private fun showLocationError(message: String) {
-        Log.e("MainActivity", message)
-        // Можно добавить Toast или Snackbar
-    }
+    // Функция для применения блюра и прозрачности только к Bottom Sheet
+    private fun applyBlurAndTransparency(bottomSheet: View) {
+        // Временно скрываем Bottom Sheet, чтобы захватить только подлежащий контент
+        bottomSheet.visibility = View.INVISIBLE
+        rootLayout.post {
+            val screenshot = takeScreenshot(rootLayout)
+            val blurredScreenshot = blurBitmap(screenshot, 25)  // Блюр с радиусом 25
 
-    // Обновление фона с блюром
-    private fun updateBackground() {
-        // Определение темы устройства
-        val isDarkTheme = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
-        val houseResId = if (isDarkTheme) R.drawable.house_night else R.drawable.house_day  // Исправление: Смена по теме (предполагаем ресурсы)
+            // Устанавливаем блюренный скриншот как фон Bottom Sheet с прозрачностью
+            val transparentBlur = ColorDrawable(Color.argb(128, 0, 0, 0))  // Полупрозрачный черный (для затемнения)
+            val layers = arrayOf(BitmapDrawable(resources, blurredScreenshot), transparentBlur)
+            val layerDrawable = LayerDrawable(layers)
+            bottomSheet.background = layerDrawable
 
-        // Загружаем изображение дома
-        val houseDrawable = resources.getDrawable(houseResId, null)
-        val houseBitmap = (houseDrawable as BitmapDrawable).bitmap
-
-        // Применяем блюр
-        val blurredBitmap = applyBlur(houseBitmap, 25)  // Радиус блюра 25
-
-        // Создаем LayerDrawable: только блюр (убрали затемнение, чтобы избежать эффекта за bottom sheet)
-        val layerDrawable = LayerDrawable(arrayOf(BitmapDrawable(resources, blurredBitmap)))
-
-        // Устанавливаем как фон rootLayout
-        rootLayout.background = layerDrawable
-
-        // Устанавливаем оригинальное изображение дома в ImageView (без блюра)
-        ivHouse.setImageDrawable(houseDrawable)
-    }
-
-    // Функция для блюра битмапа (Stack Blur)
-    private fun applyBlur(sentBitmap: Bitmap, blurRadius: Int): Bitmap {
-        if (blurRadius < 1) {
-            return sentBitmap
+            // Возвращаем видимость
+            bottomSheet.visibility = View.VISIBLE
         }
+    }
 
-        // Исправление: Обработка null для config
+    // Функция для захвата скриншота
+    private fun takeScreenshot(view: View): Bitmap {
+        val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        view.draw(canvas)
+        return bitmap
+    }
+
+    // Функция блюра (Stack Blur)
+    private fun blurBitmap(sentBitmap: Bitmap, blurRadius: Int): Bitmap {
         var bitmap = sentBitmap.copy(sentBitmap.config ?: Bitmap.Config.ARGB_8888, true)
+
+        if (blurRadius < 1) {
+            return bitmap
+        }
 
         val w = bitmap.width
         val h = bitmap.height
@@ -640,4 +652,17 @@ class MainActivity : AppCompatActivity() {
         val weatherCode: Int,
         val isCurrent: Boolean
     )
+
+    // Функция показа ошибки (заглушка)
+    private fun showError(message: String) {
+        Log.e("WeatherApp", message)
+        // Можно добавить Toast или Snackbar
+    }
+
+    // Функция показа ошибки локации (заглушка)
+    private fun showLocationError(message: String) {
+        Log.e("WeatherApp", message)
+        swipeRefreshLayout.isRefreshing = false
+        // Можно добавить диалог или Toast
+    }
 }
