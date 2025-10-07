@@ -108,20 +108,32 @@ class MainActivity : AppCompatActivity() {
         rootLayout = findViewById(R.id.root_layout)
         ivHouse = findViewById(R.id.iv_house)  // Инициализация ImageView дома
 
+        // Определение системной темы и установка фона/дома
+        val isNightMode = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
+        if (isNightMode) {
+            rootLayout.background = getDrawable(R.drawable.night_bg)
+            ivHouse.setImageResource(R.drawable.house_night)
+        } else {
+            rootLayout.background = getDrawable(R.drawable.day_bg)
+            ivHouse.setImageResource(R.drawable.house_day)
+        }
+
         // Инициализация BottomSheet (FrameLayout)
         val bottomSheet: FrameLayout = findViewById(R.id.bottom_sheet)
+        layoutInflater.inflate(R.layout.bottom_sheet_layout, bottomSheet, true)
         bottomSheetBehavior = BottomSheetBehavior.from(bottomSheet)
-        // Настройки: пропускаем collapsed, устанавливаем half-expanded на 50% экрана (для половины дома)
-        bottomSheetBehavior.skipCollapsed = true
-        bottomSheetBehavior.halfExpandedRatio = 0.5f  // 50% высоты экрана, чтобы заполнить нижнюю половину дома
+        // Настройки: устанавливаем half-expanded на 25% экрана для уменьшения размера
+        bottomSheetBehavior.skipCollapsed = false  // Включаем collapsed для стабильности, чтобы избежать пропаданий
+        bottomSheetBehavior.halfExpandedRatio = 0.35f  // 25% высоты экрана для сильного уменьшения
         bottomSheetBehavior.state = BottomSheetBehavior.STATE_HALF_EXPANDED  // Изначально в half-expanded
         bottomSheetBehavior.isDraggable = false  // Отключаем свайп и взаимодействие
         bottomSheetBehavior.isHideable = false  // Не скрываем
 
         // Инициализация элементов Bottom Sheet
-        tvWeeklyTab = findViewById(R.id.tv_weekly_tab)
-        tvDailyTab = findViewById(R.id.tv_daily_tab)
-        rvForecast = findViewById(R.id.rv_forecast)
+        tvWeeklyTab = bottomSheet.findViewById(R.id.tv_weekly_tab)
+        tvDailyTab = bottomSheet.findViewById(R.id.tv_daily_tab)
+        rvForecast = bottomSheet.findViewById(R.id.rv_forecast)
+
         rvForecast.layoutManager = LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
         forecastAdapter = ForecastAdapter(emptyList())
         rvForecast.adapter = forecastAdapter
@@ -136,38 +148,32 @@ class MainActivity : AppCompatActivity() {
 
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
 
-        // Swipe to refresh
         swipeRefreshLayout.setOnRefreshListener {
-            refreshData(true)  // Обновление с индикатором
+            refreshData(true)
         }
 
-        // Проверяем разрешения и загружаем данные
         checkLocationPermissions()
-
-        // Запускаем автообновление
         handler.postDelayed(updateRunnable, UPDATE_INTERVAL)
-
-        // Инициализация темы при запуске
-        updateBackgroundBasedOnTheme()
     }
 
-    override fun onConfigurationChanged(newConfig: Configuration) {
-        super.onConfigurationChanged(newConfig)
-        updateBackgroundBasedOnTheme()
+    private fun switchToMode(mode: String) {
+        currentMode = mode
+        if (mode == "daily") {
+            forecastAdapter.updateData(hourlyData)
+            tvDailyTab.setBackgroundColor(Color.LTGRAY)
+            tvWeeklyTab.setBackgroundColor(Color.TRANSPARENT)
+        } else {
+            forecastAdapter.updateData(dailyData)
+            tvWeeklyTab.setBackgroundColor(Color.LTGRAY)
+            tvDailyTab.setBackgroundColor(Color.TRANSPARENT)
+        }
     }
 
-    // Проверка разрешений на геолокацию
     private fun checkLocationPermissions() {
-        if (ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.ACCESS_FINE_LOCATION
-            ) == PackageManager.PERMISSION_GRANTED ||
-            ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.ACCESS_COARSE_LOCATION
-            ) == PackageManager.PERMISSION_GRANTED
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
         ) {
-            getLastLocation(true)  // Первый запуск, с индикатором
+            getLastLocation(true)
         } else {
             locationPermissionLauncher.launch(
                 arrayOf(
@@ -178,27 +184,22 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // Получение текущей локации
     @SuppressLint("MissingPermission")
-    private fun getLastLocation(showProgress: Boolean) {
-        if (showProgress) swipeRefreshLayout.isRefreshing = true
-
+    private fun getLastLocation(isInitial: Boolean) {
         fusedLocationClient.lastLocation.addOnSuccessListener { location: Location? ->
             if (location != null) {
                 currentLatitude = location.latitude
                 currentLongitude = location.longitude
                 getCityFromLocation(location)
-                fetchWeatherData("current")  // Загружаем текущую погоду
-                fetchForecastData()  // Загружаем прогноз
+                refreshData(isInitial)
             } else {
-                showLocationError("Не удалось получить локацию. Проверьте настройки GPS.")
+                showLocationError("Не удалось получить местоположение.")
             }
         }.addOnFailureListener {
-            showLocationError("Ошибка получения локации: ${it.message}")
+            showLocationError("Ошибка получения местоположения: ${it.message}")
         }
     }
 
-    // Получение города по координатам
     private fun getCityFromLocation(location: Location) {
         CoroutineScope(Dispatchers.IO).launch {
             val geocoder = Geocoder(this@MainActivity, Locale.getDefault())
@@ -209,192 +210,124 @@ class MainActivity : AppCompatActivity() {
                 geocoder.getFromLocation(location.latitude, location.longitude, 1)
             }
             withContext(Dispatchers.Main) {
-                if (!addresses.isNullOrEmpty()) {
-                    currentCity = addresses[0].locality ?: addresses[0].adminArea ?: "Неизвестно"
-                    tvCity.text = currentCity
-                } else {
-                    currentCity = "Неизвестно"
-                    tvCity.text = currentCity
-                }
+                currentCity = addresses?.firstOrNull()?.locality ?: "Неизвестный город"
+                tvCity.text = currentCity
             }
         }
     }
 
-    // Обновление данных
-    private fun refreshData(showProgress: Boolean) {
-        if (currentLatitude != 0.0 && currentLongitude != 0.0) {
-            if (showProgress) swipeRefreshLayout.isRefreshing = true
-            fetchWeatherData("current")
-            fetchForecastData()
-            handler.postDelayed(updateRunnable, UPDATE_INTERVAL)  // Перезапуск таймера
+    private fun refreshData(showRefreshing: Boolean) {
+        if (showRefreshing) {
+            swipeRefreshLayout.isRefreshing = true
         }
-    }
 
-    // Получение данных погоды
-    private fun fetchWeatherData(forecastType: String) {
         val retrofit = Retrofit.Builder()
             .baseUrl(BASE_URL)
             .addConverterFactory(GsonConverterFactory.create())
             .build()
 
-        val api = retrofit.create(WeatherApi::class.java)
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val response: Response<WeatherResponse> = retrofit.create(WeatherApi::class.java).getWeather(
+                    currentLatitude, currentLongitude,
+                    hourly = "temperature_2m,weather_code",
+                    daily = "temperature_2m_max,temperature_2m_min,weather_code"
+                ).execute()
 
-        val hourlyParams = if (forecastType == "daily") "temperature_2m,weather_code" else null
-        val dailyParams = if (forecastType == "weekly") "temperature_2m_max,temperature_2m_min,weather_code" else null
-
-        val call = api.getWeather(
-            latitude = currentLatitude,
-            longitude = currentLongitude,
-            hourly = hourlyParams,
-            daily = dailyParams
-        )
-
-        call.enqueue(object : retrofit2.Callback<WeatherResponse> {
-            override fun onResponse(call: retrofit2.Call<WeatherResponse>, response: Response<WeatherResponse>) {
-                swipeRefreshLayout.isRefreshing = false
                 if (response.isSuccessful) {
-                    val weatherResponse = response.body()
-                    weatherResponse?.let {
-                        updateUI(it, forecastType)
+                    val weather = response.body()
+                    weather?.let {
+                        withContext(Dispatchers.Main) {
+                            updateUI(it)
+                            if (showRefreshing) {
+                                swipeRefreshLayout.isRefreshing = false
+                            }
+                        }
                     }
                 } else {
-                    showError("Ошибка загрузки данных: ${response.code()}")
+                    withContext(Dispatchers.Main) {
+                        showError("Ошибка: ${response.code()}")
+                        if (showRefreshing) {
+                            swipeRefreshLayout.isRefreshing = false
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    showError("Исключение: ${e.message}")
+                    if (showRefreshing) {
+                        swipeRefreshLayout.isRefreshing = false
+                    }
                 }
             }
-
-            override fun onFailure(call: retrofit2.Call<WeatherResponse>, t: Throwable) {
-                swipeRefreshLayout.isRefreshing = false
-                showError("Ошибка сети: ${t.message}")
-            }
-        })
-    }
-
-    // Загрузка прогноза (по умолчанию hourly)
-    private fun fetchForecastData() {
-        fetchWeatherData(currentMode)
-    }
-
-    // Обновление UI текущей погоды и прогноза
-    private fun updateUI(weatherResponse: WeatherResponse, forecastType: String) {
-        if (forecastType == "current") {
-            val current = weatherResponse.current
-            tvTemperature.text = "${current.temperature.toInt()}°"
-            tvWeatherDescription.text = getWeatherDescription(current.weatherCode)
         }
 
-        // Обработка прогноза
-        if (currentMode == "daily" && weatherResponse.hourly != null) {
-            hourlyData = processHourlyData(weatherResponse.hourly!!, weatherResponse.current.time)
-            forecastAdapter.updateData(hourlyData)
-        } else if (currentMode == "weekly" && weatherResponse.daily != null) {
-            dailyData = processDailyData(weatherResponse.daily!!)
-            forecastAdapter.updateData(dailyData)
-        }
-
-        // Применяем блюр к Bottom Sheet после обновления UI
-        val bottomSheet: FrameLayout = findViewById(R.id.bottom_sheet)
-        applyBlurAndTransparency(bottomSheet)
+        handler.removeCallbacks(updateRunnable)
+        handler.postDelayed(updateRunnable, UPDATE_INTERVAL)
     }
 
-    // Переключение режимов прогноза
-    private fun switchToMode(mode: String) {
-        currentMode = mode
-        if (mode == "daily") {
-            tvDailyTab.setBackgroundColor(Color.LTGRAY)
-            tvWeeklyTab.setBackgroundColor(Color.TRANSPARENT)
-            forecastAdapter.updateData(hourlyData)
-        } else {
-            tvWeeklyTab.setBackgroundColor(Color.LTGRAY)
-            tvDailyTab.setBackgroundColor(Color.TRANSPARENT)
-            forecastAdapter.updateData(dailyData)
-        }
-        fetchWeatherData(mode)
-    }
+    private fun updateUI(weather: WeatherResponse) {
+        val current = weather.current
+        tvTemperature.text = "${current.temperature.toInt()}°C"
+        tvWeatherDescription.text = getWeatherDescription(current.weatherCode)
 
-    // Обработка почасового прогноза
-    private fun processHourlyData(hourly: Hourly, currentTimeStr: String): List<ForecastItem> {
-        val items = mutableListOf<ForecastItem>()
-        val currentTime = LocalDateTime.parse(currentTimeStr, DateTimeFormatter.ISO_DATE_TIME)
-        val formatter = DateTimeFormatter.ofPattern("HH:mm")
-
-        for (i in hourly.time.indices) {
-            val time = LocalDateTime.parse(hourly.time[i], DateTimeFormatter.ISO_DATE_TIME)
-            if (time.isAfter(currentTime) || time == currentTime) {
-                val label = if (i == 0) "Сейчас" else time.format(formatter)
-                val isCurrent = i == 0
-                items.add(
-                    ForecastItem(
-                        label,
-                        "${hourly.temperature2m[i].toInt()}°",
-                        hourly.weatherCode[i],
-                        isCurrent
-                    )
-                )
-                if (items.size == 24) break  // Ограничиваем 24 часами
+        // Hourly data
+        hourlyData = buildList {
+            val now = LocalDateTime.now()
+            val currentHourIndex = weather.hourly?.time?.indexOfFirst {
+                LocalDateTime.parse(it).isAfter(now.minusHours(1))
+            } ?: 0
+            for (i in currentHourIndex until minOf(currentHourIndex + 24, weather.hourly?.time?.size ?: 0)) {
+                val time = LocalDateTime.parse(weather.hourly!!.time[i])
+                val label = if (i == currentHourIndex) "Сейчас" else time.format(DateTimeFormatter.ofPattern("HH:mm"))
+                val temp = "${weather.hourly.temperature2m[i].toInt()}°"
+                add(ForecastItem(label, temp, weather.hourly.weatherCode[i], i == currentHourIndex))
             }
         }
-        return items
-    }
 
-    // Обработка ежедневного прогноза
-    private fun processDailyData(daily: Daily): List<ForecastItem> {
-        val items = mutableListOf<ForecastItem>()
-        val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
-        for (i in daily.time.indices) {
-            val date = LocalDateTime.parse(daily.time[i] + "T00:00", DateTimeFormatter.ISO_DATE_TIME) // Добавляем время для парсинга
-            val label = date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault())
-            items.add(
-                ForecastItem(
-                    label,
-                    "${daily.temperature2mMax[i].toInt()}° / ${daily.temperature2mMin[i].toInt()}°",
-                    daily.weatherCode[i],
-                    false
-                )
-            )
-        }
-        return items
-    }
-
-    // Функция для обновления фона и дома на основе системной темы
-    private fun updateBackgroundBasedOnTheme() {
-        val isNightMode = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
-        val isDay = !isNightMode
-        rootLayout.background = if (isDay) {
-            resources.getDrawable(R.drawable.day_bg, null)
-        } else {
-            resources.getDrawable(R.drawable.night_bg, null)
-        }
-        ivHouse.setImageResource(if (isDay) R.drawable.house_day else R.drawable.house_night)
-        ivHouse.visibility = View.VISIBLE // Убедимся, что дом видим
-    }
-
-    // Функция для применения блюра и прозрачности только к Bottom Sheet (асинхронно для избежания лагов)
-    private fun applyBlurAndTransparency(bottomSheet: View) {
-        CoroutineScope(Dispatchers.Main).launch {
-            bottomSheet.visibility = View.INVISIBLE
-            val screenshot = takeScreenshot(rootLayout)
-            val blurredScreenshot = withContext(Dispatchers.Default) {
-                blurBitmap(screenshot, 25)  // Блюр в background thread
+        // Daily data with "время до"
+        dailyData = buildList {
+            val currentDate = LocalDateTime.now().toLocalDate()
+            for (i in 0 until (weather.daily?.time?.size ?: 0)) {
+                val date = java.time.LocalDate.parse(weather.daily!!.time[i])
+                val dayOfWeek = date.dayOfWeek
+                val daysUntil = ChronoUnit.DAYS.between(currentDate, date).toInt()
+                val label = when {
+                    daysUntil == 0 -> "Сегодня"
+                    daysUntil == 1 -> "Завтра"
+                    else -> "${dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault())} (через $daysUntil дн.)"
+                }
+                val temp = "${weather.daily.temperature2mMin[i].toInt()}° / ${weather.daily.temperature2mMax[i].toInt()}°"
+                add(ForecastItem(label, temp, weather.daily.weatherCode[i], daysUntil == 0))
             }
-            val transparentBlur = ColorDrawable(Color.argb(128, 0, 0, 0))  // Полупрозрачный черный (для затемнения)
-            val layers = arrayOf(BitmapDrawable(resources, blurredScreenshot), transparentBlur)
-            val layerDrawable = LayerDrawable(layers)
-            bottomSheet.background = layerDrawable
-            bottomSheet.visibility = View.VISIBLE
+        }
+
+        // Update adapter based on current mode
+        switchToMode(currentMode)
+
+        // Update background with blur
+        updateBackground()
+    }
+
+    private fun updateBackground() {
+        CoroutineScope(Dispatchers.Default).launch {
+            val bitmap = blurBitmap(rootLayout)
+            withContext(Dispatchers.Main) {
+                val bottomSheet = findViewById<FrameLayout>(R.id.bottom_sheet)
+                bottomSheet.background = BitmapDrawable(resources, bitmap)
+            }
         }
     }
 
-    // Функция для захвата скриншота
-    private fun takeScreenshot(view: View): Bitmap {
+    private fun blurBitmap(view: View): Bitmap {
         val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         view.draw(canvas)
-        return bitmap
+        return fastBlur(bitmap, 25)  // Blur radius
     }
 
-    // Функция блюра (Stack Blur)
-    private fun blurBitmap(sentBitmap: Bitmap, blurRadius: Int): Bitmap {
-        var bitmap = sentBitmap.copy(sentBitmap.config ?: Bitmap.Config.ARGB_8888, true)
+    private fun fastBlur(sentBitmap: Bitmap, blurRadius: Int): Bitmap {
+        var bitmap = sentBitmap.copy(Bitmap.Config.ARGB_8888, true)
 
         if (blurRadius < 1) {
             return bitmap
@@ -426,17 +359,17 @@ class MainActivity : AppCompatActivity() {
         var yw: Int
         val vmin = IntArray(max(w, h))
 
-        var divsum = (div + 1) shr 1
+        var divsum = div + 1 shr 1
         divsum *= divsum
         val dv = IntArray(256 * divsum)
         i = 0
         while (i < 256 * divsum) {
-            dv[i] = (i / divsum)
+            dv[i] = i / divsum
             i++
         }
 
-        yw = 0
-        yi = yw
+        yi = 0
+        yw = yi
 
         val stack = Array(div) { IntArray(3) }
         var stackpointer: Int
@@ -468,7 +401,7 @@ class MainActivity : AppCompatActivity() {
                 sir = stack[i + blurRadius]
                 sir[0] = (p and 0xff0000) shr 16
                 sir[1] = (p and 0x00ff00) shr 8
-                sir[2] = (p and 0x0000ff)
+                sir[2] = p and 0x0000ff
                 rbs = r1 - i.absoluteValue
                 rsum += sir[0] * rbs
                 gsum += sir[1] * rbs

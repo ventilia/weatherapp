@@ -30,11 +30,15 @@ class ForecastAdapter(private var data: List<MainActivity.ForecastItem>) :
         // Иконка: Пока не устанавливаем для проверки функционала
         // holder.ivIcon.setImageResource(getIconResource(item.weatherCode))  // Закомментировано
 
-        // Выделение "сейчас"
+        // Выделение "сейчас" или текущего дня темнее
         if (item.isCurrent) {
-            holder.cardView.setCardBackgroundColor(android.graphics.Color.LTGRAY)  // Ярче/другой фон
+            holder.cardView.setCardBackgroundColor(android.graphics.Color.GRAY)  // Темнее фон
+            holder.tvTime.setTextColor(android.graphics.Color.WHITE)
+            holder.tvTemp.setTextColor(android.graphics.Color.WHITE)
         } else {
             holder.cardView.setCardBackgroundColor(android.graphics.Color.WHITE)
+            holder.tvTime.setTextColor(android.graphics.Color.BLACK)
+            holder.tvTemp.setTextColor(android.graphics.Color.BLACK)
         }
     }
 

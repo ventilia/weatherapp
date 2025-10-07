@@ -3,62 +3,54 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/root_layout"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:background="#FFFFFF">
+    android:layout_height="match_parent">
 
     <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
         android:id="@+id/swipe_refresh_layout"
         android:layout_width="match_parent"
         android:layout_height="match_parent">
 
-        <androidx.constraintlayout.widget.ConstraintLayout
+        <FrameLayout
             android:layout_width="match_parent"
             android:layout_height="match_parent">
-
-            <TextView
-                android:id="@+id/tv_city"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Город"
-                android:textSize="24sp"
-                app:layout_constraintTop_toTopOf="parent"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintEnd_toEndOf="parent"
-                android:layout_marginTop="32dp" />
-
-            <TextView
-                android:id="@+id/tv_temperature"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="0°C"
-                android:textSize="48sp"
-                app:layout_constraintTop_toBottomOf="@id/tv_city"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintEnd_toEndOf="parent"
-                android:layout_marginTop="16dp" />
-
-            <TextView
-                android:id="@+id/tv_weather_description"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Описание"
-                android:textSize="18sp"
-                app:layout_constraintTop_toBottomOf="@id/tv_temperature"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintEnd_toEndOf="parent"
-                android:layout_marginTop="8dp" />
 
             <ImageView
                 android:id="@+id/iv_house"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:src="@drawable/house_day"
+                android:layout_gravity="bottom"
+                android:layout_marginBottom="100dp"
                 android:scaleType="fitEnd"
-            app:layout_constraintBottom_toBottomOf="parent"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintEnd_toEndOf="parent" />
+                android:src="@drawable/house_day" />
 
-        </androidx.constraintlayout.widget.ConstraintLayout>
+            <TextView
+                android:text="ldldldl"
+                android:id="@+id/tv_city"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="top|center_horizontal"
+                android:textSize="24sp"
+                android:layout_marginTop="16dp" />
+
+            <TextView
+                android:text="ldldldl"
+                android:id="@+id/tv_temperature"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="top|center_horizontal"
+                android:textSize="48sp"
+                android:layout_marginTop="45dp" />
+
+            <TextView
+                android:text="ldldldl"
+                android:id="@+id/tv_weather_description"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="top|center_horizontal"
+                android:textSize="18sp"
+                android:layout_marginTop="100dp" />
+
+        </FrameLayout>
 
     </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
 
@@ -66,13 +58,6 @@
         android:id="@+id/bottom_sheet"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="@drawable/bottom_sheet_background"
-        app:layout_behavior="com.google.android.material.bottomsheet.BottomSheetBehavior"
-        android:layout_gravity="bottom">
-
-        <!-- Содержимое bottom sheet, возможно include -->
-        <include layout="@layout/bottom_sheet_layout" />
-
-    </FrameLayout>
+        app:layout_behavior="com.google.android.material.bottomsheet.BottomSheetBehavior" />
 
 </androidx.coordinatorlayout.widget.CoordinatorLayout>
