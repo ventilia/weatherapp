@@ -36,7 +36,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import retrofit2.Call
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.Response
@@ -147,6 +146,14 @@ class MainActivity : AppCompatActivity() {
 
         // Запускаем автообновление
         handler.postDelayed(updateRunnable, UPDATE_INTERVAL)
+
+        // Инициализация темы при запуске
+        updateBackgroundBasedOnTheme()
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        updateBackgroundBasedOnTheme()
     }
 
     // Проверка разрешений на геолокацию
@@ -243,19 +250,19 @@ class MainActivity : AppCompatActivity() {
         )
 
         call.enqueue(object : retrofit2.Callback<WeatherResponse> {
-            override fun onResponse(call: Call<WeatherResponse>, response: Response<WeatherResponse>) {
+            override fun onResponse(call: retrofit2.Call<WeatherResponse>, response: Response<WeatherResponse>) {
                 swipeRefreshLayout.isRefreshing = false
                 if (response.isSuccessful) {
                     val weatherResponse = response.body()
                     weatherResponse?.let {
-                        updateUI(it)
+                        updateUI(it, forecastType)
                     }
                 } else {
                     showError("Ошибка загрузки данных: ${response.code()}")
                 }
             }
 
-            override fun onFailure(call: Call<WeatherResponse>, t: Throwable) {
+            override fun onFailure(call: retrofit2.Call<WeatherResponse>, t: Throwable) {
                 swipeRefreshLayout.isRefreshing = false
                 showError("Ошибка сети: ${t.message}")
             }
@@ -268,27 +275,20 @@ class MainActivity : AppCompatActivity() {
     }
 
     // Обновление UI текущей погоды и прогноза
-    private fun updateUI(weatherResponse: WeatherResponse) {
-        val current = weatherResponse.current
-        tvTemperature.text = "${current.temperature.toInt()}°"
-        tvWeatherDescription.text = getWeatherDescription(current.weatherCode)
-
-        // Определение дня/ночи на основе часа в current.time
-        val currentTime = LocalDateTime.parse(current.time, DateTimeFormatter.ISO_DATE_TIME)
-        val isDay = currentTime.hour in 6..18
-        updateBackground(isDay)
+    private fun updateUI(weatherResponse: WeatherResponse, forecastType: String) {
+        if (forecastType == "current") {
+            val current = weatherResponse.current
+            tvTemperature.text = "${current.temperature.toInt()}°"
+            tvWeatherDescription.text = getWeatherDescription(current.weatherCode)
+        }
 
         // Обработка прогноза
-        if (currentMode == "daily") {
-            weatherResponse.hourly?.let { hourly ->
-                hourlyData = processHourlyData(hourly, current.time)
-                forecastAdapter.updateData(hourlyData)
-            }
-        } else {
-            weatherResponse.daily?.let { daily ->
-                dailyData = processDailyData(daily)
-                forecastAdapter.updateData(dailyData)
-            }
+        if (currentMode == "daily" && weatherResponse.hourly != null) {
+            hourlyData = processHourlyData(weatherResponse.hourly!!, weatherResponse.current.time)
+            forecastAdapter.updateData(hourlyData)
+        } else if (currentMode == "weekly" && weatherResponse.daily != null) {
+            dailyData = processDailyData(weatherResponse.daily!!)
+            forecastAdapter.updateData(dailyData)
         }
 
         // Применяем блюр к Bottom Sheet после обновления UI
@@ -341,7 +341,7 @@ class MainActivity : AppCompatActivity() {
         val items = mutableListOf<ForecastItem>()
         val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
         for (i in daily.time.indices) {
-            val date = LocalDateTime.parse(daily.time[i], formatter)
+            val date = LocalDateTime.parse(daily.time[i] + "T00:00", DateTimeFormatter.ISO_DATE_TIME) // Добавляем время для парсинга
             val label = date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.getDefault())
             items.add(
                 ForecastItem(
@@ -355,30 +355,31 @@ class MainActivity : AppCompatActivity() {
         return items
     }
 
-    // Функция для обновления фона в зависимости от дня/ночи
-    private fun updateBackground(isDay: Boolean) {
+    // Функция для обновления фона и дома на основе системной темы
+    private fun updateBackgroundBasedOnTheme() {
+        val isNightMode = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+        val isDay = !isNightMode
         rootLayout.background = if (isDay) {
             resources.getDrawable(R.drawable.day_bg, null)
         } else {
             resources.getDrawable(R.drawable.night_bg, null)
         }
+        ivHouse.setImageResource(if (isDay) R.drawable.house_day else R.drawable.house_night)
+        ivHouse.visibility = View.VISIBLE // Убедимся, что дом видим
     }
 
-    // Функция для применения блюра и прозрачности только к Bottom Sheet
+    // Функция для применения блюра и прозрачности только к Bottom Sheet (асинхронно для избежания лагов)
     private fun applyBlurAndTransparency(bottomSheet: View) {
-        // Временно скрываем Bottom Sheet, чтобы захватить только подлежащий контент
-        bottomSheet.visibility = View.INVISIBLE
-        rootLayout.post {
+        CoroutineScope(Dispatchers.Main).launch {
+            bottomSheet.visibility = View.INVISIBLE
             val screenshot = takeScreenshot(rootLayout)
-            val blurredScreenshot = blurBitmap(screenshot, 25)  // Блюр с радиусом 25
-
-            // Устанавливаем блюренный скриншот как фон Bottom Sheet с прозрачностью
+            val blurredScreenshot = withContext(Dispatchers.Default) {
+                blurBitmap(screenshot, 25)  // Блюр в background thread
+            }
             val transparentBlur = ColorDrawable(Color.argb(128, 0, 0, 0))  // Полупрозрачный черный (для затемнения)
             val layers = arrayOf(BitmapDrawable(resources, blurredScreenshot), transparentBlur)
             val layerDrawable = LayerDrawable(layers)
             bottomSheet.background = layerDrawable
-
-            // Возвращаем видимость
             bottomSheet.visibility = View.VISIBLE
         }
     }
